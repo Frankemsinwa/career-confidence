@@ -1,13 +1,15 @@
+
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
-import { Loader2, Send, SkipForward, RefreshCcw, Lightbulb, CheckCircle, XCircle, Target, Award } from 'lucide-react';
+import { Loader2, Send, SkipForward, RefreshCcw, Lightbulb, CheckCircle, XCircle, Target, Award, Mic, MicOff } from 'lucide-react';
 import type { EvaluateAnswerOutput } from '@/ai/flows/evaluate-answer';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { useToast } from '@/hooks/use-toast';
 
 type InterviewAreaProps = {
   question: string;
@@ -50,34 +52,119 @@ export default function InterviewArea({
   const [timer, setTimer] = useState<number | null>(null); // Optional timer in seconds
   const [timeLeft, setTimeLeft] = useState<number>(0);
 
+  const [isRecording, setIsRecording] = useState(false);
+  const [speechApiSupported, setSpeechApiSupported] = useState(true);
+  const speechRecognitionRef = useRef<SpeechRecognition | null>(null);
+  const { toast } = useToast();
+
   useEffect(() => {
     setAnswer('');
     setShowEvaluation(false);
     setShowModelAnswer(false);
-    // Reset timer if needed
     if (timer) setTimeLeft(timer);
+    // Stop recording if a new question loads
+    if (speechRecognitionRef.current && isRecording) {
+      speechRecognitionRef.current.stop();
+      setIsRecording(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [question, timer]);
 
   useEffect(() => {
-    if (!timer || timeLeft <= 0 || !showEvaluation) return; // Don't countdown if timer not set, time is up, or evaluation is shown
+    if (!timer || timeLeft <= 0 || showEvaluation) return;
     const intervalId = setInterval(() => {
       setTimeLeft((prevTime) => prevTime - 1);
     }, 1000);
     return () => clearInterval(intervalId);
   }, [timer, timeLeft, showEvaluation]);
 
+  useEffect(() => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setSpeechApiSupported(false);
+      toast({
+        title: "Voice Input Not Supported",
+        description: "Your browser doesn't support speech recognition.",
+        variant: "destructive"
+      });
+    } else {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.lang = 'en-US';
+
+      recognition.onstart = () => {
+        setIsRecording(true);
+        toast({ title: "Listening...", description: "Speak your answer now."});
+      };
+
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        setAnswer(prev => (prev ? prev.trim() + ' ' : '') + transcript);
+      };
+
+      recognition.onerror = (event) => {
+        setIsRecording(false);
+        let errorMessage = "Speech recognition error.";
+        if (event.error === 'no-speech') {
+          errorMessage = "No speech was detected. Please try again.";
+        } else if (event.error === 'audio-capture') {
+          errorMessage = "Microphone problem. Please ensure it's working.";
+        } else if (event.error === 'not-allowed') {
+          errorMessage = "Microphone access denied. Please enable it in your browser settings.";
+        }
+        toast({ title: "Voice Input Error", description: errorMessage, variant: "destructive" });
+      };
+
+      recognition.onend = () => {
+        setIsRecording(false);
+      };
+      speechRecognitionRef.current = recognition;
+    }
+    
+    return () => {
+      if (speechRecognitionRef.current) {
+        speechRecognitionRef.current.stop();
+      }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
 
   const handleSubmit = async () => {
-    if (isLoadingEvaluation) return;
+    if (isLoadingEvaluation || isRecording) return;
+    if (speechRecognitionRef.current && isRecording) {
+      speechRecognitionRef.current.stop(); // Stop recording if active
+    }
     await onSubmitAnswer(answer);
     setShowEvaluation(true);
   };
 
   const handleGetModel = async () => {
-    if (isLoadingModelAnswer) return;
+    if (isLoadingModelAnswer || isRecording) return;
     await onGetModelAnswer();
     setShowModelAnswer(true);
   }
+
+  const toggleVoiceInput = () => {
+    if (!speechApiSupported || !speechRecognitionRef.current) {
+      toast({ title: "Voice Input Not Supported", description: "Speech recognition is not available on this browser.", variant: "destructive"});
+      return;
+    }
+    if (isRecording) {
+      speechRecognitionRef.current.stop();
+    } else {
+      // Check for permissions before starting. The 'not-allowed' error will be caught by onerror.
+      // Modern browsers handle permissions transparently when .start() is called.
+      try {
+        speechRecognitionRef.current.start();
+      } catch (e) {
+          setIsRecording(false);
+          toast({ title: "Could not start voice input", description: "Please ensure microphone permissions are granted and try again.", variant: "destructive"});
+          console.error("Error starting speech recognition:", e);
+      }
+    }
+  };
 
   const progressPercentage = (questionNumber / totalQuestions) * 100;
 
@@ -104,33 +191,45 @@ export default function InterviewArea({
         {!showEvaluation && !isLoadingNewQuestion && (
           <CardContent>
             <Textarea
-              placeholder="Type your answer here..."
+              placeholder="Type or use microphone to record your answer..."
               value={answer}
               onChange={(e) => setAnswer(e.target.value)}
               rows={6}
               className="text-base border-2 focus:border-primary transition-colors"
-              disabled={isLoadingEvaluation || isLoadingNewQuestion}
+              disabled={isLoadingEvaluation || isLoadingNewQuestion }
             />
           </CardContent>
         )}
         {!showEvaluation && !isLoadingNewQuestion && (
-          <CardFooter className="flex flex-col sm:flex-row justify-between gap-2">
-            <div className="flex gap-2">
-              <Button onClick={onRegenerateQuestion} variant="outline" disabled={isLoadingEvaluation || isLoadingNewQuestion}>
+          <CardFooter className="flex flex-col sm:flex-row justify-between items-center gap-2">
+            <div className="flex gap-2 w-full sm:w-auto">
+              <Button onClick={onRegenerateQuestion} variant="outline" disabled={isLoadingEvaluation || isLoadingNewQuestion || isRecording}>
                 <RefreshCcw size={18} className="mr-2" /> Regenerate
               </Button>
-              <Button onClick={onSkipQuestion} variant="outline" disabled={isLoadingEvaluation || isLoadingNewQuestion}>
+              <Button onClick={onSkipQuestion} variant="outline" disabled={isLoadingEvaluation || isLoadingNewQuestion || isRecording}>
                 <SkipForward size={18} className="mr-2" /> Skip
               </Button>
             </div>
-            <Button onClick={handleSubmit} disabled={!answer.trim() || isLoadingEvaluation || isLoadingNewQuestion} className="w-full sm:w-auto">
-              {isLoadingEvaluation ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Send size={18} className="mr-2" />
-              )}
-              Submit Answer
-            </Button>
+            <div className="flex gap-2 w-full sm:w-auto">
+              <Button 
+                onClick={toggleVoiceInput} 
+                variant={isRecording ? "destructive" : "outline"}
+                size="icon"
+                disabled={!speechApiSupported || isLoadingEvaluation || isLoadingNewQuestion}
+                aria-label={isRecording ? "Stop recording" : "Start voice input"}
+                className={isRecording ? "bg-red-500 hover:bg-red-600 text-white" : ""}
+              >
+                {isRecording ? <MicOff size={20} /> : <Mic size={20} />}
+              </Button>
+              <Button onClick={handleSubmit} disabled={!answer.trim() || isLoadingEvaluation || isLoadingNewQuestion || isRecording} className="flex-grow sm:flex-grow-0">
+                {isLoadingEvaluation ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Send size={18} className="mr-2" />
+                )}
+                Submit Answer
+              </Button>
+            </div>
           </CardFooter>
         )}
       </Card>
@@ -195,3 +294,5 @@ export default function InterviewArea({
     </div>
   );
 }
+
+    
