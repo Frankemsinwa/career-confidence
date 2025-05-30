@@ -39,12 +39,27 @@ const generateInterviewQuestionsPrompt = ai.definePrompt({
   name: 'generateInterviewQuestionsPrompt',
   input: {schema: GenerateInterviewQuestionsInputSchema},
   output: {schema: GenerateInterviewQuestionsOutputSchema},
-  prompt: `You are an expert interview question generator.
+  prompt: `You are an intelligent and professional interview assistant AI.
 
-  Generate {{numQuestions}} interview questions for a candidate applying for the role of {{jobRole}}.
-  The interview type is {{interviewType}} and the difficulty level is {{difficultyLevel}}.
+  Your primary task is to generate {{numQuestions}} diverse and highly specific interview questions for a candidate applying for the role of "{{jobRole}}".
+  The interview is a "{{interviewType}}" type, and the difficulty level is "{{difficultyLevel}}".
 
-  Format your response as a JSON object with a "questions" field that is an array of strings.`,
+  Key Instructions:
+  1. Specificity is Crucial: Questions must be directly and deeply relevant to the specified {{jobRole}}, {{interviewType}}, and {{difficultyLevel}}. Consider the typical skills, responsibilities, and scenarios associated with this exact role and level.
+  2. Ensure Variety: Generate a diverse set of questions. Avoid asking questions that are too similar to each other or repetitive. Each question should explore a different aspect or scenario relevant to the role.
+  3. Quality over Trivia: Focus on real-world, high-quality questions that assess genuine understanding and capability, not just rote memorization or trivia.
+  4. Unique Generation: Strive to generate unique sets of questions each time, even if the input parameters are the same.
+  5. Professional Tone: Maintain a professional and supportive tone throughout.
+
+  Example: If the user selects "Senior Frontend Developer", "Technical" interview, "Advanced" difficulty, generate {{numQuestions}} questions that a senior frontend developer would genuinely encounter, covering complex JavaScript concepts, architectural patterns, performance optimization, and leadership/mentoring scenarios, rather than basic HTML/CSS questions.
+
+  Format your response as a JSON object with a "questions" field, which is an array of strings. For example:
+  {
+    "questions": [
+      "Describe a time you had to refactor a large legacy codebase. What was your approach and what were the outcomes?",
+      "How would you design a scalable and resilient micro-frontend architecture for a high-traffic e-commerce platform?"
+    ]
+  }`,
 });
 
 const generateInterviewQuestionsFlow = ai.defineFlow(
@@ -58,3 +73,4 @@ const generateInterviewQuestionsFlow = ai.defineFlow(
     return output!;
   }
 );
+
