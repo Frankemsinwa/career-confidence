@@ -76,7 +76,7 @@ export default function InterviewArea({
       setIsRecording(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [question, timer]);
+  }, [question, timer]); // isRecording not needed as it's handled by ref state
 
   useEffect(() => {
     if (!timer || timeLeft <= 0 || showEvaluation) return;
@@ -91,21 +91,30 @@ export default function InterviewArea({
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       setSpeechApiSupported(false);
-      // Toast only if user tries to use it and it's not supported
     } else {
       const recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.interimResults = false;
+      recognition.continuous = true; // Listen until explicitly stopped
+      recognition.interimResults = false; // We only care about final results for now
       recognition.lang = 'en-US';
 
       recognition.onstart = () => {
         setIsRecording(true);
-        toast({ title: "Listening...", description: "Speak your answer now."});
+        toast({ title: "Listening...", description: "Speak your answer. Click the microphone to stop."});
       };
 
       recognition.onresult = (event) => {
-        const transcript = event.results[0][0].transcript;
-        setAnswer(prev => (prev ? prev.trim() + ' ' : '') + transcript);
+        // event.resultIndex indicates the first result in the SpeechRecognitionResultList that has changed.
+        // We iterate from this index to the end of the list to get all new final results.
+        let newTranscriptPart = "";
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+            // We check isFinal, though with interimResults=false it should always be final.
+            if (event.results[i].isFinal) { 
+                newTranscriptPart += event.results[i][0].transcript.trim() + " ";
+            }
+        }
+        if (newTranscriptPart) {
+            setAnswer(prev => (prev ? prev.trim() + ' ' : '') + newTranscriptPart.trim());
+        }
       };
 
       recognition.onerror = (event) => {
@@ -117,12 +126,16 @@ export default function InterviewArea({
           errorMessage = "Microphone problem. Please ensure it's working.";
         } else if (event.error === 'not-allowed') {
           errorMessage = "Microphone access denied. Please enable it in your browser settings.";
+        } else if (event.error === 'network') {
+            errorMessage = "Network error during speech recognition. Please check your connection.";
         }
         toast({ title: "Voice Input Error", description: errorMessage, variant: "destructive" });
       };
 
       recognition.onend = () => {
         setIsRecording(false);
+        // You could add a toast here: toast({ title: "Recording stopped." });
+        // But it might be redundant if an error also shows a toast.
       };
       speechRecognitionRef.current = recognition;
     }
@@ -130,25 +143,27 @@ export default function InterviewArea({
     // Speech Synthesis (Output) Setup
     if (!('speechSynthesis' in window)) {
       setSpeechSynthesisSupported(false);
-      // Toast only if user tries to use it and it's not supported
     }
     
     return () => {
       if (speechRecognitionRef.current) {
+        speechRecognitionRef.current.onstart = null;
+        speechRecognitionRef.current.onresult = null;
+        speechRecognitionRef.current.onerror = null;
+        speechRecognitionRef.current.onend = null;
         speechRecognitionRef.current.stop();
       }
       if (window.speechSynthesis && window.speechSynthesis.speaking) {
         window.speechSynthesis.cancel();
       }
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [toast]);
 
 
   const handleSubmit = async () => {
     if (isLoadingEvaluation || isRecording) return;
-    if (speechRecognitionRef.current && isRecording) {
-      speechRecognitionRef.current.stop(); // Stop recording if active
+    if (speechRecognitionRef.current && isRecording) { // Should not happen if button is disabled
+      speechRecognitionRef.current.stop(); 
     }
     await onSubmitAnswer(answer);
     setShowEvaluation(true);
@@ -157,7 +172,7 @@ export default function InterviewArea({
   const handleGetModel = async () => {
     if (isLoadingModelAnswer || isRecording) return;
     if (window.speechSynthesis && window.speechSynthesis.speaking) {
-      window.speechSynthesis.cancel(); // Stop speaking if showing new model answer
+      window.speechSynthesis.cancel(); 
       setIsSpeakingModelAnswer(false);
     }
     await onGetModelAnswer();
@@ -173,10 +188,16 @@ export default function InterviewArea({
       speechRecognitionRef.current.stop();
     } else {
       try {
+        // Clear previous answer before starting new recording if desired, or append.
+        // Current onresult logic appends. If you want to clear, setAnswer('') here.
         speechRecognitionRef.current.start();
-      } catch (e) {
+      } catch (e: any) {
           setIsRecording(false);
-          toast({ title: "Could not start voice input", description: "Please ensure microphone permissions are granted and try again.", variant: "destructive"});
+          let description = "Please ensure microphone permissions are granted and try again.";
+          if (e.name === 'InvalidStateError') {
+            description = "Speech recognition is already active or in an invalid state. Please wait or refresh.";
+          }
+          toast({ title: "Could not start voice input", description: description, variant: "destructive"});
           console.error("Error starting speech recognition:", e);
       }
     }
@@ -212,9 +233,6 @@ export default function InterviewArea({
         <CardHeader>
           <div className="flex justify-between items-center mb-2">
             <CardTitle className="text-2xl font-semibold text-primary">Question {questionNumber} of {totalQuestions}</CardTitle>
-            {/* Timer display - Optional
-            {timer && <div className={`text-lg font-semibold px-3 py-1 rounded-md ${timeLeft <= 10 ? 'text-destructive' : 'text-foreground'}`}>{Math.floor(timeLeft / 60)}:{String(timeLeft % 60).padStart(2, '0')}</div>}
-            */}
           </div>
           <Progress value={progressPercentage} className="w-full h-2" />
           {isLoadingNewQuestion ? (
@@ -234,7 +252,7 @@ export default function InterviewArea({
               onChange={(e) => setAnswer(e.target.value)}
               rows={6}
               className="text-base border-2 focus:border-primary transition-colors"
-              disabled={isLoadingEvaluation || isLoadingNewQuestion }
+              disabled={isLoadingEvaluation || isLoadingNewQuestion || isRecording }
             />
           </CardContent>
         )}
@@ -292,7 +310,7 @@ export default function InterviewArea({
             </div>
             
             {!modelAnswerText && (
-              <Button onClick={handleGetModel} variant="outline" className="w-full sm:w-auto border-accent text-accent-foreground hover:bg-accent/10" disabled={isLoadingModelAnswer}>
+              <Button onClick={handleGetModel} variant="outline" className="w-full sm:w-auto border-accent text-accent-foreground hover:bg-accent/10" disabled={isLoadingModelAnswer || isRecording}>
                 {isLoadingModelAnswer ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
@@ -313,7 +331,7 @@ export default function InterviewArea({
                 onClick={handleSpeakModelAnswer}
                 variant="outline" 
                 size="icon"
-                disabled={!speechSynthesisSupported || isLoadingModelAnswer}
+                disabled={!speechSynthesisSupported || isLoadingModelAnswer || isRecording}
                 aria-label={isSpeakingModelAnswer ? "Stop speaking" : "Speak model answer"}
                 className={isSpeakingModelAnswer ? "border-destructive text-destructive" : "border-primary text-primary"}
               >
@@ -342,3 +360,4 @@ export default function InterviewArea({
     </div>
   );
 }
+
