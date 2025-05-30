@@ -22,7 +22,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Briefcase, ListChecks, BarChart3, PlayCircle, Zap } from 'lucide-react';
+import { Briefcase, ListChecks, BarChart3, PlayCircle } from 'lucide-react';
 import type { InterviewSettings, InterviewType, DifficultyLevel, QuestionCount } from '@/lib/types';
 import { interviewTypes, difficultyLevels, questionCountOptions } from '@/lib/types';
 
@@ -32,7 +32,7 @@ const formSchema = z.object({
   difficultyLevel: z.enum(difficultyLevels),
   numQuestions: z
     .number({
-      invalid_type_error: 'Number of questions must be a selected value.', // More specific error if not a number
+      invalid_type_error: 'Number of questions must be a selected value.',
     })
     .refine((val): val is QuestionCount => 
       (questionCountOptions as ReadonlyArray<number>).includes(val), 
@@ -44,11 +44,11 @@ const formSchema = z.object({
 
 type InterviewSetupFormProps = {
   onSubmit: (settings: InterviewSettings) => void;
-  onDailyPractice: () => void;
+  onDailyPractice: () => void; // Kept in props in case it's used elsewhere, but button removed
   isLoading: boolean;
 };
 
-export default function InterviewSetupForm({ onSubmit, onDailyPractice, isLoading }: InterviewSetupFormProps) {
+export default function InterviewSetupForm({ onSubmit, isLoading }: InterviewSetupFormProps) {
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -165,12 +165,9 @@ export default function InterviewSetupForm({ onSubmit, onDailyPractice, isLoadin
                 </FormItem>
               )}
             />
-            <div className="flex flex-col sm:flex-row gap-4 pt-4">
+            <div className="pt-4">
               <Button type="submit" className="w-full text-lg py-6" disabled={isLoading}>
                 <PlayCircle size={22} className="mr-2"/> Start Interview
-              </Button>
-              <Button type="button" variant="outline" onClick={onDailyPractice} className="w-full text-lg py-6" disabled={isLoading}>
-                <Zap size={22} className="mr-2 text-accent"/> Daily Practice
               </Button>
             </div>
           </form>
