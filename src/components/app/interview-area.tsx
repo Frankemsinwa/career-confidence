@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
-import { Loader2, Send, SkipForward, RefreshCcw, Lightbulb, CheckCircle, XCircle, Target, Award, Mic, MicOff } from 'lucide-react';
+import { Loader2, Send, SkipForward, RefreshCcw, Lightbulb, CheckCircle, XCircle, Target, Award, Mic, MicOff, Play, Square } from 'lucide-react';
 import type { EvaluateAnswerOutput } from '@/ai/flows/evaluate-answer';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from '@/hooks/use-toast';
@@ -55,12 +55,20 @@ export default function InterviewArea({
   const [isRecording, setIsRecording] = useState(false);
   const [speechApiSupported, setSpeechApiSupported] = useState(true);
   const speechRecognitionRef = useRef<SpeechRecognition | null>(null);
+  
+  const [isSpeakingModelAnswer, setIsSpeakingModelAnswer] = useState(false);
+  const [speechSynthesisSupported, setSpeechSynthesisSupported] = useState(true);
+
   const { toast } = useToast();
 
   useEffect(() => {
     setAnswer('');
     setShowEvaluation(false);
     setShowModelAnswer(false);
+    setIsSpeakingModelAnswer(false); // Reset speaking state
+    if (window.speechSynthesis && window.speechSynthesis.speaking) {
+      window.speechSynthesis.cancel(); // Stop any ongoing speech
+    }
     if (timer) setTimeLeft(timer);
     // Stop recording if a new question loads
     if (speechRecognitionRef.current && isRecording) {
@@ -79,14 +87,11 @@ export default function InterviewArea({
   }, [timer, timeLeft, showEvaluation]);
 
   useEffect(() => {
+    // Speech Recognition (Input) Setup
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       setSpeechApiSupported(false);
-      toast({
-        title: "Voice Input Not Supported",
-        description: "Your browser doesn't support speech recognition.",
-        variant: "destructive"
-      });
+      // Toast only if user tries to use it and it's not supported
     } else {
       const recognition = new SpeechRecognition();
       recognition.continuous = false;
@@ -121,10 +126,19 @@ export default function InterviewArea({
       };
       speechRecognitionRef.current = recognition;
     }
+
+    // Speech Synthesis (Output) Setup
+    if (!('speechSynthesis' in window)) {
+      setSpeechSynthesisSupported(false);
+      // Toast only if user tries to use it and it's not supported
+    }
     
     return () => {
       if (speechRecognitionRef.current) {
         speechRecognitionRef.current.stop();
+      }
+      if (window.speechSynthesis && window.speechSynthesis.speaking) {
+        window.speechSynthesis.cancel();
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -142,6 +156,10 @@ export default function InterviewArea({
 
   const handleGetModel = async () => {
     if (isLoadingModelAnswer || isRecording) return;
+    if (window.speechSynthesis && window.speechSynthesis.speaking) {
+      window.speechSynthesis.cancel(); // Stop speaking if showing new model answer
+      setIsSpeakingModelAnswer(false);
+    }
     await onGetModelAnswer();
     setShowModelAnswer(true);
   }
@@ -154,8 +172,6 @@ export default function InterviewArea({
     if (isRecording) {
       speechRecognitionRef.current.stop();
     } else {
-      // Check for permissions before starting. The 'not-allowed' error will be caught by onerror.
-      // Modern browsers handle permissions transparently when .start() is called.
       try {
         speechRecognitionRef.current.start();
       } catch (e) {
@@ -163,6 +179,28 @@ export default function InterviewArea({
           toast({ title: "Could not start voice input", description: "Please ensure microphone permissions are granted and try again.", variant: "destructive"});
           console.error("Error starting speech recognition:", e);
       }
+    }
+  };
+
+  const handleSpeakModelAnswer = () => {
+    if (!speechSynthesisSupported || !modelAnswerText) {
+      toast({ title: "Speech Output Not Supported", description: "Text-to-speech is not available on this browser.", variant: "destructive"});
+      return;
+    }
+
+    if (window.speechSynthesis.speaking) {
+      window.speechSynthesis.cancel();
+      setIsSpeakingModelAnswer(false);
+    } else {
+      const utterance = new SpeechSynthesisUtterance(modelAnswerText);
+      utterance.lang = 'en-US';
+      utterance.onstart = () => setIsSpeakingModelAnswer(true);
+      utterance.onend = () => setIsSpeakingModelAnswer(false);
+      utterance.onerror = (event) => {
+        setIsSpeakingModelAnswer(false);
+        toast({ title: "Speech Error", description: `Could not play audio: ${event.error}`, variant: "destructive"});
+      };
+      window.speechSynthesis.speak(utterance);
     }
   };
 
@@ -269,8 +307,18 @@ export default function InterviewArea({
 
       {showModelAnswer && modelAnswerText && (
          <Card className="shadow-xl animate-in fade-in duration-500 mt-4">
-           <CardHeader>
+           <CardHeader className="flex flex-row justify-between items-center">
              <CardTitle className="text-xl font-semibold flex items-center text-indigo-600"><Target size={20} className="mr-2" />Model Answer</CardTitle>
+             <Button 
+                onClick={handleSpeakModelAnswer}
+                variant="outline" 
+                size="icon"
+                disabled={!speechSynthesisSupported || isLoadingModelAnswer}
+                aria-label={isSpeakingModelAnswer ? "Stop speaking" : "Speak model answer"}
+                className={isSpeakingModelAnswer ? "border-destructive text-destructive" : "border-primary text-primary"}
+              >
+                {isSpeakingModelAnswer ? <Square size={20} /> : <Play size={20} />}
+              </Button>
            </CardHeader>
            <CardContent>
              <p className="text-muted-foreground bg-indigo-50 p-3 rounded-md border border-indigo-200">{modelAnswerText}</p>
@@ -294,5 +342,3 @@ export default function InterviewArea({
     </div>
   );
 }
-
-    
