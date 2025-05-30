@@ -49,6 +49,12 @@ export default function Home() {
 
   const { toast } = useToast();
 
+  // State to ensure client-side only rendering for localStorage dependent components
+  const [hasMounted, setHasMounted] = useState(false);
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
+
   const handleStartInterview = async (settings: InterviewSettings) => {
     setIsLoadingSetup(true);
     setCurrentSettings(settings);
@@ -274,7 +280,7 @@ export default function Home() {
       )}
 
       <div className="mt-12">
-        <ProgressTracker attempts={progress} />
+        {hasMounted ? <ProgressTracker attempts={progress} /> : null}
       </div>
     </div>
   );
