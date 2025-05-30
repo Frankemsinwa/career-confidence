@@ -1,3 +1,4 @@
+
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -29,7 +30,16 @@ const formSchema = z.object({
   jobRole: z.string().min(2, { message: 'Job role must be at least 2 characters.' }).max(50),
   interviewType: z.enum(interviewTypes),
   difficultyLevel: z.enum(difficultyLevels),
-  numQuestions: z.coerce.number().pipe(z.enum(questionCountOptions.map(String) as [string, ...string[]]).transform(Number) as z.ZodType<QuestionCount>),
+  numQuestions: z
+    .number({
+      invalid_type_error: 'Number of questions must be a selected value.', // More specific error if not a number
+    })
+    .refine((val): val is QuestionCount => 
+      (questionCountOptions as ReadonlyArray<number>).includes(val), 
+      {
+        message: `Number of questions must be one of: ${questionCountOptions.join(', ')}.`,
+      }
+    ) as z.ZodType<QuestionCount>,
 });
 
 type InterviewSetupFormProps = {
@@ -134,7 +144,10 @@ export default function InterviewSetupForm({ onSubmit, onDailyPractice, isLoadin
               render={({ field }) => (
                 <FormItem>
                   <FormLabel className="flex items-center gap-2 text-lg">Number of Questions</FormLabel>
-                  <Select onValueChange={(value) => field.onChange(Number(value) as QuestionCount)} defaultValue={String(field.value)}>
+                  <Select 
+                    onValueChange={(value) => field.onChange(Number(value) as QuestionCount)} 
+                    defaultValue={String(field.value)}
+                  >
                     <FormControl>
                       <SelectTrigger className="text-base">
                         <SelectValue placeholder="Select number of questions" />
