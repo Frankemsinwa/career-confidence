@@ -24,6 +24,13 @@ export type AnalyzeCommunicationInput = z.infer<
   typeof AnalyzeCommunicationInputSchema
 >;
 
+// New schema for the prompt's internal use, including wordCount
+const AnalyzeCommunicationPromptInternalInputSchema = AnalyzeCommunicationInputSchema.extend({
+  wordCount: z.number().describe('The number of words in the transcribed answer.'),
+});
+type AnalyzeCommunicationPromptInternalInput = z.infer<typeof AnalyzeCommunicationPromptInternalInputSchema>;
+
+
 const AnalyzeCommunicationOutputSchema = z.object({
   clarityFeedback: z
     .string()
@@ -60,8 +67,8 @@ const COMMON_FILLER_WORDS = [
 
 const analyzeCommunicationPrompt = ai.definePrompt({
   name: 'analyzeCommunicationPrompt',
-  model: 'googleai/gemini-1.5-flash', // Explicitly set model
-  input: {schema: AnalyzeCommunicationInputSchema},
+  model: 'googleai/gemini-1.5-flash',
+  input: {schema: AnalyzeCommunicationPromptInternalInputSchema}, // Use the new extended schema
   output: {schema: AnalyzeCommunicationOutputSchema},
   prompt: `You are an expert communication coach analyzing an interview answer.
 The candidate is interviewing for the role of "{{jobRole}}" at "{{difficulty}}" level.
@@ -70,8 +77,9 @@ The candidate's transcribed answer is below:
 {{{answerText}}}
 ---
 The answer was delivered in {{recordingDurationSeconds}} seconds.
+The answer has {{wordCount}} words.
 
-Based *only* on the provided text and duration, analyze the following:
+Based *only* on the provided text, duration, and word count, analyze the following:
 
 1.  **Clarity and Conciseness**: Provide brief feedback on how clear and to-the-point the answer is.
     For example: "The answer is clear and directly addresses the question." or "The answer could be more concise and focused."
@@ -83,8 +91,8 @@ Based *only* on the provided text and duration, analyze the following:
     Provide a brief observation. For example: "The use of direct statements suggests confidence." or "Phrases like 'I guess' or 'maybe' could suggest some hesitation."
 
 4.  **Speaking Pace**:
-    - The answer has {{answerText.split(/\s+/).filter(Boolean).length}} words.
-    - Calculate the speaking pace in words per minute (WPM) using the formula: (word count / {{recordingDurationSeconds}}) * 60. Round to the nearest whole number.
+    - The answer has {{wordCount}} words.
+    - Calculate the speaking pace in words per minute (WPM) using the formula: ({{wordCount}} / {{recordingDurationSeconds}}) * 60. Round to the nearest whole number.
     - Provide feedback on this pace. General guidelines:
         - Slow: < 120 WPM (can sound hesitant or unenthusiastic)
         - Conversational/Good: 120-160 WPM (generally ideal for interviews)
@@ -100,29 +108,32 @@ Do not add any preamble or explanation outside the JSON structure.
 const analyzeCommunicationFlow = ai.defineFlow(
   {
     name: 'analyzeCommunicationFlow',
-    inputSchema: AnalyzeCommunicationInputSchema,
+    inputSchema: AnalyzeCommunicationInputSchema, // Flow's public input remains the same
     outputSchema: AnalyzeCommunicationOutputSchema,
   },
   async (input: AnalyzeCommunicationInput) => {
     const wordCount = input.answerText.split(/\s+/).filter(Boolean).length;
     let calculatedWPM = 0;
-    if (input.recordingDurationSeconds > 0) {
+    if (input.recordingDurationSeconds > 0 && wordCount > 0) { // also check wordCount to avoid division by zero if answerText is empty
         calculatedWPM = Math.round((wordCount / input.recordingDurationSeconds) * 60);
     }
 
-    const promptInput = {
+    const promptInternalInput: AnalyzeCommunicationPromptInternalInput = {
         ...input,
-        // The prompt itself can also calculate this, but good to have it here if needed
-        // For the prompt, we pass the raw values and let it confirm the calculation and generate feedback.
+        wordCount: wordCount,
     };
 
-    const {output} = await analyzeCommunicationPrompt(promptInput);
+    const {output} = await analyzeCommunicationPrompt(promptInternalInput);
     
-    // Ensure the WPM in the output is the one we calculated, in case the LLM deviates.
-    // The prompt is asked to calculate it and provide feedback, but we can override its number.
+    // Ensure the WPM in the output is the one we calculated, in case the LLM deviates or can't calculate for empty text.
     if (output) {
         output.speakingPaceWPM = calculatedWPM;
+        // If wordCount is 0, pace feedback might be strange from LLM, clear it or set to a default.
+        if (wordCount === 0) {
+            output.paceFeedback = "No speech detected or answer was empty, so pace could not be calculated.";
+        }
     }
     return output!;
   }
 );
+
