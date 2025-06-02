@@ -103,21 +103,16 @@ export default function InterviewArea({
 
     requestPermissionsAndStream();
     
-    // General cleanup for resources that might be created by this component instance
-    // Specifically for recordedVideoUrl if the component unmounts.
-    // Stream cleanup is handled by the effect that depends on videoStream.
     return () => {
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
         mediaRecorderRef.current.stop();
       }
-      // If there's a recordedVideoUrl object URL, revoke it on unmount
-      // This is a fallback, specific cleanups are preferred when the URL changes
       if (recordedVideoUrl && typeof recordedVideoUrl === 'string' && recordedVideoUrl.startsWith('blob:')) {
         URL.revokeObjectURL(recordedVideoUrl);
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [toast]); // toast is a dependency because it's used in the effect
+  }, [toast]); 
 
   // Effect to attach the video stream to the video element and manage stream lifecycle
   useEffect(() => {
@@ -125,24 +120,20 @@ export default function InterviewArea({
       videoPreviewRef.current.srcObject = videoStream;
       videoPreviewRef.current.play().catch(error => {
         console.warn("Video preview autoplay was prevented:", error);
-        // You might want to show a toast here if autoplay fails,
-        // but `muted autoPlay playsInline` usually works.
-        // toast({
-        //   title: "Video Preview",
-        //   description: "Autoplay prevented. You might need to interact for video to start.",
-        // });
+         toast({
+           title: "Video Preview Info",
+           description: "Video autoplay might require user interaction if blocked by the browser.",
+           variant: "default",
+         });
       });
     }
 
-    // Cleanup for the videoStream: stops tracks when component unmounts or videoStream changes.
     return () => {
       if (videoStream) {
         videoStream.getTracks().forEach(track => track.stop());
-        // If mediaRecorder was using this specific stream and is recording, stop it.
-        // This prevents a stale mediaRecorder from holding onto an old stream.
         if (mediaRecorderRef.current && mediaRecorderRef.current.stream === videoStream && mediaRecorderRef.current.state === 'recording') {
             mediaRecorderRef.current.stop();
-            setIsVideoRecordingActive(false); // Ensure state consistency
+            setIsVideoRecordingActive(false); 
         }
       }
     };
@@ -162,11 +153,13 @@ export default function InterviewArea({
 
     if (speechRecognitionRef.current && isSpeechToTextRecording) {
       speechRecognitionRef.current.stop();
+      setIsSpeechToTextRecording(false); 
     }
     if (mediaRecorderRef.current && isVideoRecordingActive) {
       mediaRecorderRef.current.stop(); 
+      setIsVideoRecordingActive(false);
     }
-    if (recordedVideoUrl) { // Clean up previous recording when question changes
+    if (recordedVideoUrl) { 
       URL.revokeObjectURL(recordedVideoUrl);
       setRecordedVideoUrl(null);
     }
@@ -179,39 +172,54 @@ export default function InterviewArea({
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       setSpeechApiSupported(false);
-    } else {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = true;
-      recognition.interimResults = false;
-      recognition.lang = 'en-US';
-
-      recognition.onstart = () => setIsSpeechToTextRecording(true);
-
-      recognition.onresult = (event) => {
-        let newTranscriptPart = "";
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-            if (event.results[i].isFinal) { 
-                newTranscriptPart += event.results[i][0].transcript.trim() + " ";
-            }
-        }
-        if (newTranscriptPart) {
-            setAnswer(prev => (prev ? prev.trim() + ' ' : '') + newTranscriptPart.trim());
-        }
-      };
-
-      recognition.onerror = (event) => {
-        setIsSpeechToTextRecording(false);
-        let errorMessage = "Speech recognition error.";
-        if (event.error === 'no-speech') errorMessage = "No speech detected for a while. Stopped.";
-        else if (event.error === 'audio-capture') errorMessage = "Microphone problem.";
-        else if (event.error === 'not-allowed') errorMessage = "Microphone access denied for speech.";
-        else if (event.error === 'network') errorMessage = "Network error during speech recognition.";
-        toast({ title: "Voice Input Error", description: errorMessage, variant: "destructive" });
-      };
-
-      recognition.onend = () => setIsSpeechToTextRecording(false);
-      speechRecognitionRef.current = recognition;
+      // No toast here, button will be disabled and tooltip will explain
+      return; 
     }
+    
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true; // Keep listening until explicitly stopped
+    recognition.interimResults = false; // Only process final results
+    recognition.lang = 'en-US';
+
+    recognition.onstart = () => {
+        setIsSpeechToTextRecording(true);
+        // Toast moved to startFullRecording for better context
+    };
+
+    recognition.onresult = (event) => {
+      let newTranscriptPart = "";
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) { 
+              newTranscriptPart += event.results[i][0].transcript.trim() + " ";
+          }
+      }
+      if (newTranscriptPart.trim()) {
+          setAnswer(prev => (prev ? prev.trim() + ' ' : '') + newTranscriptPart.trim());
+      }
+    };
+
+    recognition.onerror = (event) => {
+      console.error("Speech recognition error:", event.error, event.message);
+      setIsSpeechToTextRecording(false);
+      let errorMessage = `Speech recognition error: ${event.error}.`;
+      if (event.message) errorMessage += ` Message: ${event.message}`;
+
+      if (event.error === 'no-speech') errorMessage = "No speech was detected. Microphone might not be picking up audio or stopped too soon.";
+      else if (event.error === 'audio-capture') errorMessage = "Audio capture failed. Ensure your microphone is properly connected and configured.";
+      else if (event.error === 'not-allowed') errorMessage = "Microphone access was denied or disallowed. Please enable permissions in browser settings.";
+      else if (event.error === 'network') errorMessage = "A network error occurred during speech recognition. Check your internet connection.";
+      else if (event.error === 'aborted') errorMessage = "Speech recognition was aborted, possibly by the user or a browser action.";
+      else if (event.error === 'service-not-allowed') errorMessage = "Speech recognition service is not allowed. This may be due to browser/OS settings or policy."
+      
+      toast({ title: "Voice Input Error", description: errorMessage, variant: "destructive" });
+    };
+
+    recognition.onend = () => {
+      setIsSpeechToTextRecording(false);
+      // Toast moved to stopFullRecording
+    };
+    speechRecognitionRef.current = recognition;
+    
 
     if (!('speechSynthesis' in window)) {
       setSpeechSynthesisSupported(false);
@@ -228,6 +236,15 @@ export default function InterviewArea({
   }, [toast]);
 
   const startFullRecording = () => {
+    if (!speechApiSupported && !hasCameraPermission) {
+         toast({ title: "Features Unavailable", description: "Voice and video input are not available.", variant: "destructive"});
+         return;
+    }
+    if (hasCameraPermission === false && !speechApiSupported) {
+       toast({ title: "Permissions/Support Missing", description: "Enable camera/mic and ensure browser supports Speech API.", variant: "destructive" });
+       return;
+    }
+
     if (recordedVideoUrl) { 
         URL.revokeObjectURL(recordedVideoUrl);
         setRecordedVideoUrl(null);
@@ -235,15 +252,21 @@ export default function InterviewArea({
     recordedChunksRef.current = []; 
     setRecordingStartTime(Date.now());
     setRecordingDurationSeconds(0);
+    setAnswer(''); // Clear previous answer text on new recording start
 
-    if (speechRecognitionRef.current) {
+    let speechStarted = false;
+    if (speechRecognitionRef.current && speechApiSupported) {
       try {
         speechRecognitionRef.current.start();
-      } catch (e) {
-        toast({ title: "Speech Error", description: "Could not start voice input.", variant: "destructive" });
-        setIsSpeechToTextRecording(false); // Ensure state is correct
+        speechStarted = true; // Assume onstart will set isSpeechToTextRecording
+      } catch (e: any) {
+        console.error("Error starting speech recognition:", e);
+        toast({ title: "Speech Error", description: `Could not start voice input: ${e.message || e.name || 'Unknown error'}`, variant: "destructive" });
+        setIsSpeechToTextRecording(false); 
       }
     }
+
+    let videoStarted = false;
     if (hasCameraPermission && videoStream && !isVideoRecordingActive) {
       try {
         mediaRecorderRef.current = new MediaRecorder(videoStream, { mimeType: 'video/webm' });
@@ -259,70 +282,67 @@ export default function InterviewArea({
           const url = URL.createObjectURL(videoBlob);
           setRecordedVideoUrl(url);
           setIsVideoRecordingActive(false); 
-          if (recordingStartTime) {
+          if (recordingStartTime) { // This might be slightly delayed, fine for now
               setRecordingDurationSeconds(Math.round((Date.now() - recordingStartTime) / 1000));
           }
         };
         
         mediaRecorderRef.current.start();
         setIsVideoRecordingActive(true);
-        toast({ title: "Recording Started", description: "Video and audio recording in progress. Click mic to stop."});
-      } catch (e) {
+        videoStarted = true;
+      } catch (e: any) {
          console.error("MediaRecorder setup failed:", e);
-         toast({title: "Recording Error", description: "Could not start video recording.", variant: "destructive"});
+         toast({title: "Video Recording Error", description: `Could not start video recording: ${e.message || 'Unknown error'}`, variant: "destructive"});
          setIsVideoRecordingActive(false);
-         // If video fails, but speech started, let speech continue or stop it too?
-         // For now, speech might still be active if it started successfully.
       }
-    } else if (!hasCameraPermission && speechRecognitionRef.current && !isSpeechToTextRecording) { // Only attempting speech
-        // Speech start is handled above. This toast is for when only speech is available.
-        if (isSpeechToTextRecording) { // Check if speech actually started
-            toast({ title: "Voice Recording Started", description: "Click mic to stop. Enable camera for video."});
-        }
-    } else if (hasCameraPermission && !videoStream && speechRecognitionRef.current){
-        // Camera permission granted, but stream somehow not available yet for MediaRecorder
-        // This case should be rare with the new useEffect structure, but as a fallback:
-        if (isSpeechToTextRecording) {
-            toast({ title: "Voice Recording Started", description: "Video stream not ready. Click mic to stop."});
-        }
     }
+    
+    if (speechStarted && videoStarted) {
+        toast({ title: "Recording Started", description: "Video and voice recording. Click mic again to stop."});
+    } else if (speechStarted) {
+        toast({ title: "Voice Recording Started", description: "Click mic again to stop. Video not active."});
+    } else if (videoStarted) {
+        toast({ title: "Video Recording Started", description: "Click mic again to stop. Voice input not active."});
+    } else if (!speechApiSupported && hasCameraPermission && !videoStream) {
+         toast({ title: "Camera Not Ready", description: "Camera stream not ready yet. Please wait.", variant: "default" });
+    }
+
   };
 
   const stopFullRecording = () => {
     let durationJustCalculated = 0;
     if (recordingStartTime) {
         durationJustCalculated = Math.round((Date.now() - recordingStartTime) / 1000);
-        setRecordingDurationSeconds(durationJustCalculated); // Set duration immediately
+        setRecordingDurationSeconds(durationJustCalculated); 
     }
 
+    let speechWasActive = false;
     if (speechRecognitionRef.current && isSpeechToTextRecording) {
       speechRecognitionRef.current.stop(); // onend will set isSpeechToTextRecording to false
+      speechWasActive = true;
     }
+    
+    let videoWasActive = false;
     if (mediaRecorderRef.current && isVideoRecordingActive) {
       mediaRecorderRef.current.stop(); // onstop will set isVideoRecordingActive to false & create URL
-      toast({ title: "Recording Stopped", description: "Video and audio processing..."});
-    } else if (isSpeechToTextRecording) { 
-      toast({ title: "Voice Recording Stopped" });
+      videoWasActive = true;
     }
-     setRecordingStartTime(null); 
+    
+    if (videoWasActive && speechWasActive) {
+        toast({ title: "Recording Stopped", description: "Video and audio processing..."});
+    } else if (speechWasActive) {
+        toast({ title: "Voice Recording Stopped" });
+    } else if (videoWasActive) {
+        toast({ title: "Video Recording Stopped", description: "Processing video..." });
+    }
+    
+    setRecordingStartTime(null); 
   };
 
   const toggleRecording = () => {
     if (isSpeechToTextRecording || isVideoRecordingActive) {
       stopFullRecording();
     } else {
-      if (!speechApiSupported && !hasCameraPermission) { // Neither feature is usable
-         toast({ title: "Features Not Supported", description: "Voice and video input are not available on this browser or permissions are denied.", variant: "destructive"});
-         return;
-      }
-       if (hasCameraPermission === false && !speechApiSupported) { // Specifically both denied/unsupported
-           toast({ title: "Permissions Denied", description: "Enable camera/microphone and ensure browser supports Speech API.", variant: "destructive" });
-           return;
-       }
-        if (hasCameraPermission && !videoStream) { // Permissions granted but stream not yet ready (should be rare)
-            toast({ title: "Camera Not Ready", description: "Camera stream is not available yet. Please wait a moment.", variant: "default" });
-            return;
-        }
       startFullRecording();
     }
   };
@@ -330,21 +350,17 @@ export default function InterviewArea({
   const handleSubmit = async () => {
     if (isLoadingEvaluation || (isSpeechToTextRecording || isVideoRecordingActive)) return;
     
-    // Duration should already be set by stopFullRecording or its onstop handlers
-    // If user clicks submit while recording, stopFullRecording should be called first.
-    // For safety, ensure recording is stopped.
     if (isSpeechToTextRecording || isVideoRecordingActive) {
         stopFullRecording();
-        // It might take a moment for onstop handlers to complete and set video URL / final duration.
-        // This could be improved with a small delay or promise chain if issues arise.
-        // For now, we use the latest state.
+        // Wait for onstop handlers if recordings were active
+        await new Promise(resolve => setTimeout(resolve, 200)); 
     }
     
     // Use a timeout to allow onstop handlers to complete if stopFullRecording was just called
-    setTimeout(async () => {
-        await onSubmitAnswer(answer, recordingDurationSeconds, recordedVideoUrl);
-        setShowEvaluation(true);
-    }, 100); // Small delay for onstop to finish updating state
+    // Or rely on the await new Promise above.
+    // Using current state values which should be updated by onstop/onend
+    await onSubmitAnswer(answer, recordingDurationSeconds, recordedVideoUrl);
+    setShowEvaluation(true);
   };
 
   const handleGetModel = async () => {
@@ -434,14 +450,13 @@ export default function InterviewArea({
         
         {hasCameraPermission && (
           <CardContent className="relative">
-            {/* The video tag is always rendered if hasCameraPermission is true, ref will be set */}
             <video ref={videoPreviewRef} muted autoPlay playsInline className="w-full aspect-video rounded-md bg-muted border shadow-inner" />
              {isVideoRecordingActive && (
                 <div className="absolute top-3 left-3 bg-red-600 text-white px-3 py-1 rounded-full text-xs flex items-center shadow-lg animate-pulse">
                     <Mic size={14} className="mr-1.5" /> REC
                 </div>
             )}
-             {!videoStream && hasCameraPermission && ( // Stream not yet ready, but permission granted
+             {!videoStream && hasCameraPermission && ( 
                 <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-md">
                     <Loader2 className="h-8 w-8 animate-spin text-white" />
                     <p className="ml-2 text-white">Initializing camera...</p>
@@ -477,6 +492,7 @@ export default function InterviewArea({
                   variant={isAnyRecordingActive ? "destructive" : "outline"}
                   size="icon"
                   disabled={ (hasCameraPermission === false && !speechApiSupported) || isLoadingEvaluation || isLoadingNewQuestion }
+                  title={!speechApiSupported ? "Speech input not supported by your browser" : (isAnyRecordingActive ? "Stop recording" : "Start voice and video input")}
                   aria-label={isAnyRecordingActive ? "Stop recording" : "Start voice and video input"}
                   className={isAnyRecordingActive ? "bg-red-500 hover:bg-red-600 text-white" : ""}
                 >
@@ -568,6 +584,7 @@ export default function InterviewArea({
                 variant="outline" 
                 size="icon"
                 disabled={!speechSynthesisSupported || isLoadingModelAnswer || isAnyRecordingActive}
+                title={!speechSynthesisSupported ? "Speech synthesis not supported" : (isSpeakingModelAnswer ? "Stop speaking" : "Speak model answer")}
                 aria-label={isSpeakingModelAnswer ? "Stop speaking" : "Speak model answer"}
                 className={isSpeakingModelAnswer ? "border-destructive text-destructive" : "border-primary text-primary"}
               >
@@ -596,3 +613,4 @@ export default function InterviewArea({
     </div>
   );
 }
+
