@@ -37,6 +37,7 @@ export async function generateInterviewQuestions(
 
 const generateInterviewQuestionsPrompt = ai.definePrompt({
   name: 'generateInterviewQuestionsPrompt',
+  model: 'googleai/gemini-1.5-flash', // Explicitly set model
   input: {schema: GenerateInterviewQuestionsInputSchema},
   output: {schema: GenerateInterviewQuestionsOutputSchema},
   prompt: `You are an intelligent and professional interview assistant AI.
@@ -73,4 +74,3 @@ const generateInterviewQuestionsFlow = ai.defineFlow(
     return output!;
   }
 );
-

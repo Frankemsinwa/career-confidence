@@ -60,6 +60,7 @@ const COMMON_FILLER_WORDS = [
 
 const analyzeCommunicationPrompt = ai.definePrompt({
   name: 'analyzeCommunicationPrompt',
+  model: 'googleai/gemini-1.5-flash', // Explicitly set model
   input: {schema: AnalyzeCommunicationInputSchema},
   output: {schema: AnalyzeCommunicationOutputSchema},
   prompt: `You are an expert communication coach analyzing an interview answer.

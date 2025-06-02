@@ -35,6 +35,7 @@ export async function evaluateAnswer(input: EvaluateAnswerInput): Promise<Evalua
 
 const prompt = ai.definePrompt({
   name: 'evaluateAnswerPrompt',
+  model: 'googleai/gemini-1.5-flash', // Explicitly set model
   input: {schema: EvaluateAnswerInputSchema},
   output: {schema: EvaluateAnswerOutputSchema},
   prompt: `You are an AI career coach specializing in evaluating interview answers for the role of {{jobRole}}. 
