@@ -1,3 +1,4 @@
+
 'use client';
 
 import { StoredAttempt } from '@/lib/types';
@@ -6,7 +7,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { formatDistanceToNow } from 'date-fns';
-import { TrendingUp, Archive } from 'lucide-react';
+import { TrendingUp, Archive, Clock, MicVocal, BarChartHorizontal } from 'lucide-react';
 
 type ProgressTrackerProps = {
   attempts: StoredAttempt[];
@@ -35,7 +36,7 @@ export default function ProgressTracker({ attempts }: ProgressTrackerProps) {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <ScrollArea className="h-[400px] pr-4">
+        <ScrollArea className="h-[500px] pr-4"> {/* Increased height slightly */}
           <Accordion type="single" collapsible className="w-full">
             {attempts.sort((a,b) => b.timestamp - a.timestamp).map((attempt, index) => (
               <AccordionItem value={`item-${index}`} key={attempt.id} className="mb-2 border-b-0">
@@ -45,9 +46,16 @@ export default function ProgressTracker({ attempts }: ProgressTrackerProps) {
                       <p className="font-semibold text-primary-foreground text-lg">{attempt.settings.jobRole.length > 25 ? `${attempt.settings.jobRole.substring(0,25)}...` : attempt.settings.jobRole}</p>
                       <p className="text-xs text-muted-foreground">{formatDistanceToNow(new Date(attempt.timestamp), { addSuffix: true })}</p>
                     </div>
-                    <Badge variant={attempt.evaluation.score >= 70 ? 'default' : 'destructive'} className="text-sm px-3 py-1">
-                      Score: {attempt.evaluation.score}
-                    </Badge>
+                    <div className="flex items-center gap-2">
+                      {attempt.recordingDurationSeconds !== undefined && (
+                        <Badge variant="outline" className="text-xs hidden sm:flex items-center gap-1">
+                          <Clock size={12}/> {attempt.recordingDurationSeconds}s
+                        </Badge>
+                      )}
+                      <Badge variant={attempt.evaluation.score >= 70 ? 'default' : 'destructive'} className="text-sm px-3 py-1">
+                        Score: {attempt.evaluation.score}
+                      </Badge>
+                    </div>
                   </div>
                 </AccordionTrigger>
                 <AccordionContent className="bg-card p-4 rounded-b-lg shadow-inner border border-t-0">
@@ -57,9 +65,10 @@ export default function ProgressTracker({ attempts }: ProgressTrackerProps) {
                       <p className="pl-2">{attempt.question}</p>
                     </div>
                     <div>
-                      <h4 className="font-medium text-muted-foreground">Your Answer:</h4>
+                      <h4 className="font-medium text-muted-foreground">Your Answer (Text):</h4>
                       <p className="pl-2 whitespace-pre-wrap">{attempt.userAnswer}</p>
                     </div>
+                    
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
                       <div className="bg-green-50 p-3 rounded border border-green-200">
                         <h4 className="font-medium text-green-700">Strengths:</h4>
@@ -70,8 +79,26 @@ export default function ProgressTracker({ attempts }: ProgressTrackerProps) {
                         <p className="text-sm text-red-600">{attempt.evaluation.weaknesses}</p>
                       </div>
                     </div>
+
+                    {attempt.communicationAnalysis && (
+                       <div className="mt-3 pt-3 border-t">
+                         <h4 className="font-medium text-muted-foreground flex items-center gap-1 mb-1"><BarChartHorizontal size={16}/>Communication Analysis:</h4>
+                         <div className="pl-2 space-y-1 text-sm">
+                            <p><strong>Clarity:</strong> {attempt.communicationAnalysis.clarityFeedback}</p>
+                            <p><strong>Confidence Cues:</strong> {attempt.communicationAnalysis.confidenceCues}</p>
+                            <p>
+                                <strong>Pace:</strong> {attempt.communicationAnalysis.speakingPaceWPM} WPM. {attempt.communicationAnalysis.paceFeedback}
+                                {attempt.recordingDurationSeconds && ` (Total: ${attempt.recordingDurationSeconds}s)`}
+                            </p>
+                            {attempt.communicationAnalysis.fillerWordsFound.length > 0 && (
+                                <p><strong>Filler Words:</strong> {attempt.communicationAnalysis.fillerWordsFound.join(', ')}</p>
+                            )}
+                         </div>
+                       </div>
+                    )}
+
                      <div className="bg-indigo-50 p-3 rounded border border-indigo-200 mt-2">
-                        <h4 className="font-medium text-indigo-700">Model Answer:</h4>
+                        <h4 className="font-medium text-indigo-700 flex items-center gap-1"><MicVocal size={16}/>Model Answer Suggestion:</h4>
                         <p className="text-sm text-indigo-600">{attempt.evaluation.modelAnswer}</p>
                       </div>
                     <div className="text-xs text-muted-foreground pt-2">

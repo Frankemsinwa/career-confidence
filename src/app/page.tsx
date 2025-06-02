@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -11,18 +12,14 @@ import { evaluateAnswer } from '@/ai/flows/evaluate-answer';
 import type { EvaluateAnswerInput, EvaluateAnswerOutput } from '@/ai/flows/evaluate-answer';
 import { provideModelAnswer } from '@/ai/flows/provide-model-answer';
 import type { ProvideModelAnswerInput } from '@/ai/flows/provide-model-answer';
-import type { InterviewSettings, StoredAttempt, InterviewType, DifficultyLevel, QuestionCount } from '@/lib/types';
+import { analyzeCommunication } from '@/ai/flows/analyze-communication-flow';
+import type { AnalyzeCommunicationInput, AnalyzeCommunicationOutput } from '@/ai/flows/analyze-communication-flow';
+import type { InterviewSettings, StoredAttempt, QuestionCount } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
 import useLocalStorage from '@/hooks/use-local-storage';
-import { v4 as uuidv4 } from 'uuid'; // For unique IDs
+import { v4 as uuidv4 } from 'uuid'; 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Award, RotateCcw } from 'lucide-react';
-
-// Helper to ensure numQuestions is always a valid QuestionCount
-const ensureValidNumQuestions = (num: number): QuestionCount => {
-  const validCounts: readonly number[] = [1, 3, 5, 7, 10];
-  return (validCounts.includes(num) ? num : 3) as QuestionCount;
-};
 
 
 export default function Home() {
@@ -37,19 +34,19 @@ export default function Home() {
   // Feedback state for the current question
   const [currentEvaluation, setCurrentEvaluation] = useState<EvaluateAnswerOutput | null>(null);
   const [currentModelAnswer, setCurrentModelAnswer] = useState<string | null>(null);
+  const [currentCommunicationAnalysis, setCurrentCommunicationAnalysis] = useState<AnalyzeCommunicationOutput | null>(null);
 
   // Loading states
   const [isLoadingSetup, setIsLoadingSetup] = useState<boolean>(false);
-  const [isLoadingEvaluation, setIsLoadingEvaluation] = useState<boolean>(false);
+  const [isLoadingEvaluation, setIsLoadingEvaluation] = useState<boolean>(false); // This will now cover both eval and comms analysis
   const [isLoadingModelAnswer, setIsLoadingModelAnswer] = useState<boolean>(false);
-  const [isLoadingNewQuestion, setIsLoadingNewQuestion] = useState<boolean>(false); // For skip/regenerate
+  const [isLoadingNewQuestion, setIsLoadingNewQuestion] = useState<boolean>(false);
 
   // Progress state
   const [progress, setProgress] = useLocalStorage<StoredAttempt[]>('careerConfidenceProgress', []);
 
   const { toast } = useToast();
 
-  // State to ensure client-side only rendering for localStorage dependent components
   const [hasMounted, setHasMounted] = useState(false);
   useEffect(() => {
     setHasMounted(true);
@@ -71,6 +68,7 @@ export default function Home() {
         setCurrentQuestionIndex(0);
         setCurrentEvaluation(null);
         setCurrentModelAnswer(null);
+        setCurrentCommunicationAnalysis(null);
         setIsInterviewActive(true);
         toast({ title: "Interview Started!", description: `Generated ${result.questions.length} questions for you.` });
       } else {
@@ -83,51 +81,70 @@ export default function Home() {
     setIsLoadingSetup(false);
   };
 
-  const handleDailyPractice = () => {
-    const dailySettings: InterviewSettings = {
-      jobRole: "General Professional",
-      interviewType: "Behavioral",
-      difficultyLevel: "Intermediate",
-      numQuestions: 3,
-    };
-    handleStartInterview(dailySettings);
-  };
-
-  const handleSubmitAnswer = async (answer: string) => {
+  const handleSubmitAnswer = async (answer: string, recordingDurationSeconds: number, recordedVideoUrl: string | null) => {
     if (!currentSettings || generatedQuestions.length === 0) return;
     setIsLoadingEvaluation(true);
-    setCurrentEvaluation(null); // Clear previous evaluation
-    setCurrentModelAnswer(null); // Clear previous model answer
+    setCurrentEvaluation(null); 
+    setCurrentModelAnswer(null);
+    setCurrentCommunicationAnalysis(null);
+    let evaluationResult: EvaluateAnswerOutput | null = null;
+    let communicationResult: AnalyzeCommunicationOutput | null = null;
+
     try {
-      const aiInput: EvaluateAnswerInput = {
+      // Evaluate main answer
+      const evalInput: EvaluateAnswerInput = {
         question: generatedQuestions[currentQuestionIndex],
         answer: answer,
         jobRole: currentSettings.jobRole,
         difficulty: currentSettings.difficultyLevel,
       };
-      const evaluationResult = await evaluateAnswer(aiInput);
+      evaluationResult = await evaluateAnswer(evalInput);
       setCurrentEvaluation(evaluationResult);
-
-      const newAttempt: StoredAttempt = {
-        id: uuidv4(),
-        timestamp: Date.now(),
-        question: generatedQuestions[currentQuestionIndex],
-        userAnswer: answer,
-        evaluation: evaluationResult,
-        settings: {
-          jobRole: currentSettings.jobRole,
-          interviewType: currentSettings.interviewType,
-          difficultyLevel: currentSettings.difficultyLevel,
-        },
-      };
-      setProgress(prevProgress => [...prevProgress, newAttempt]);
       toast({ title: "Answer Evaluated!", description: `Score: ${evaluationResult.score}/100` });
 
+      // Analyze communication if answer text is available
+      if (answer.trim() && recordingDurationSeconds > 0) {
+        try {
+          const commsInput: AnalyzeCommunicationInput = {
+            answerText: answer,
+            recordingDurationSeconds: recordingDurationSeconds,
+            jobRole: currentSettings.jobRole,
+            difficulty: currentSettings.difficultyLevel,
+          };
+          communicationResult = await analyzeCommunication(commsInput);
+          setCurrentCommunicationAnalysis(communicationResult);
+          toast({ title: "Communication Analyzed!" });
+        } catch (commsError) {
+           console.error("Error analyzing communication:", commsError);
+           toast({ title: "Comms Analysis Error", description: "Failed to analyze communication aspects.", variant: "destructive" });
+        }
+      }
     } catch (error) {
-      console.error("Error evaluating answer:", error);
-      toast({ title: "Error", description: "Failed to evaluate answer.", variant: "destructive" });
+      console.error("Error during answer submission process:", error);
+      toast({ title: "Error", description: "Failed to process answer fully.", variant: "destructive" });
+    } finally {
+      setIsLoadingEvaluation(false);
+      // Save progress even if one part fails, as long as we have an evaluation
+      if (evaluationResult) {
+        const newAttempt: StoredAttempt = {
+          id: uuidv4(),
+          timestamp: Date.now(),
+          question: generatedQuestions[currentQuestionIndex],
+          userAnswer: answer,
+          evaluation: evaluationResult,
+          settings: {
+            jobRole: currentSettings.jobRole,
+            interviewType: currentSettings.interviewType,
+            difficultyLevel: currentSettings.difficultyLevel,
+          },
+          communicationAnalysis: communicationResult ?? undefined,
+          recordingDurationSeconds: recordingDurationSeconds,
+          // Note: recordedVideoUrl from InterviewArea is a blob URL and won't be useful if directly stored in localStorage for long term.
+          // For now, we are not persisting the video blob itself, only its transient URL for immediate review if needed in ProgressTracker (though that's not implemented yet).
+        };
+        setProgress(prevProgress => [...prevProgress, newAttempt]);
+      }
     }
-    setIsLoadingEvaluation(false);
   };
 
   const handleGetModelAnswer = async () => {
@@ -154,8 +171,8 @@ export default function Home() {
       setCurrentQuestionIndex(prev => prev + 1);
       setCurrentEvaluation(null);
       setCurrentModelAnswer(null);
+      setCurrentCommunicationAnalysis(null);
     } else {
-      // This case should be handled by onFinishInterview
       handleFinishInterview();
     }
   };
@@ -165,17 +182,18 @@ export default function Home() {
     setIsLoadingNewQuestion(true);
     setCurrentEvaluation(null);
     setCurrentModelAnswer(null);
+    setCurrentCommunicationAnalysis(null);
     try {
       const aiInput: GenerateInterviewQuestionsInput = {
         jobRole: currentSettings.jobRole,
         interviewType: currentSettings.interviewType,
         difficultyLevel: currentSettings.difficultyLevel,
-        numQuestions: 1, // Generate one new question
+        numQuestions: 1, 
       };
       const result = await generateInterviewQuestions(aiInput);
       if (result.questions && result.questions.length > 0) {
         const newQuestions = [...generatedQuestions];
-        newQuestions[currentQuestionIndex] = result.questions[0]; // Replace current question
+        newQuestions[currentQuestionIndex] = result.questions[0]; 
         setGeneratedQuestions(newQuestions);
         toast({ title: "Question Skipped", description: "A new question has been generated." });
       } else {
@@ -198,17 +216,18 @@ export default function Home() {
     setIsLoadingNewQuestion(true);
     setCurrentEvaluation(null);
     setCurrentModelAnswer(null);
+    setCurrentCommunicationAnalysis(null);
     try {
       const aiInput: GenerateInterviewQuestionsInput = {
         jobRole: currentSettings.jobRole,
         interviewType: currentSettings.interviewType,
         difficultyLevel: currentSettings.difficultyLevel,
-        numQuestions: 1, // Generate one new question
+        numQuestions: 1, 
       };
       const result = await generateInterviewQuestions(aiInput);
       if (result.questions && result.questions.length > 0) {
         const newQuestions = [...generatedQuestions];
-        newQuestions[currentQuestionIndex] = result.questions[0]; // Replace current question
+        newQuestions[currentQuestionIndex] = result.questions[0]; 
         setGeneratedQuestions(newQuestions);
         toast({ title: "Question Regenerated", description: "A new version of the question is ready." });
       } else {
@@ -224,27 +243,28 @@ export default function Home() {
 
   const handleFinishInterview = () => {
     setIsInterviewActive(false);
-    setCurrentSettings(null);
+    // Keep currentSettings to show the "Interview Complete!" screen
+    // setCurrentSettings(null); // Don't reset this here, reset when starting new
     setGeneratedQuestions([]);
     setCurrentQuestionIndex(0);
     setCurrentEvaluation(null);
     setCurrentModelAnswer(null);
+    setCurrentCommunicationAnalysis(null);
     toast({ title: "Interview Finished!", description: "Great job on completing your practice session!" });
   };
   
   const isLastQuestion = currentQuestionIndex === generatedQuestions.length - 1;
 
   return (
-    <div className="container mx-auto px-4 py-8 min-h-[calc(100vh-var(--header-height,80px))]"> {/* Adjust header height if known */}
+    <div className="container mx-auto px-4 py-8 min-h-[calc(100vh-var(--header-height,80px))]">
       {!isInterviewActive ? (
-        currentSettings === null ? ( // Show setup form only if no settings (i.e. not finished an interview)
-          <InterviewSetupForm 
+        currentSettings === null || generatedQuestions.length === 0 ? 
+          (<InterviewSetupForm 
             onSubmit={handleStartInterview} 
-            onDailyPractice={handleDailyPractice}
             isLoading={isLoadingSetup}
-          />
-        ) : ( // Interview finished screen
-          <Card className="w-full max-w-md mx-auto text-center shadow-xl">
+          />)
+         : 
+          (<Card className="w-full max-w-md mx-auto text-center shadow-xl">
             <CardHeader>
               <Award size={64} className="mx-auto text-accent mb-4" />
               <CardTitle className="text-3xl font-bold">Interview Complete!</CardTitle>
@@ -253,12 +273,23 @@ export default function Home() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Button onClick={() => setCurrentSettings(null)} size="lg" className="w-full text-lg py-6">
+              <Button onClick={() => {
+                  setCurrentSettings(null); 
+                  // Also clear other states just in case for a truly fresh start
+                  setGeneratedQuestions([]);
+                  setCurrentQuestionIndex(0);
+                  setCurrentEvaluation(null);
+                  setCurrentModelAnswer(null);
+                  setCurrentCommunicationAnalysis(null);
+                }} 
+                size="lg" 
+                className="w-full text-lg py-6"
+              >
                 <RotateCcw size={20} className="mr-2"/> Start New Interview
               </Button>
             </CardContent>
-          </Card>
-        )
+          </Card>)
+        
       ) : (
         <InterviewArea
           question={generatedQuestions[currentQuestionIndex]}
@@ -270,17 +301,18 @@ export default function Home() {
           onGetModelAnswer={handleGetModelAnswer}
           onNextQuestion={handleNextQuestion}
           onFinishInterview={handleFinishInterview}
-          isLoadingEvaluation={isLoadingEvaluation}
+          isLoadingEvaluation={isLoadingEvaluation} // This now covers overall submission loading
           isLoadingModelAnswer={isLoadingModelAnswer}
           isLoadingNewQuestion={isLoadingNewQuestion}
           evaluationResult={currentEvaluation}
+          communicationAnalysisResult={currentCommunicationAnalysis}
           modelAnswerText={currentModelAnswer}
           isLastQuestion={isLastQuestion}
         />
       )}
 
       <div className="mt-12">
-        {hasMounted ? <ProgressTracker attempts={progress} /> : null}
+        {hasMounted ? <ProgressTracker attempts={progress} /> : <p className="text-center text-muted-foreground">Loading progress...</p>}
       </div>
     </div>
   );
