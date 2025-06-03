@@ -58,7 +58,9 @@ export default function InterviewArea({
   const [showEvaluation, setShowEvaluation] = useState(false);
   const [showModelAnswer, setShowModelAnswer] = useState(false);
   
-  const [isSpeechToTextRecording, setIsSpeechToTextRecording] = useState(false);
+  const [isSpeechToTextRecording, setIsSpeechToTextRecording] = useState(false); // True if SpeechRec is active (from voice OR video button)
+  const [isVideoRecordingActive, setIsVideoRecordingActive] = useState(false); // True if MediaRecorder is active
+
   const [speechApiSupported, setSpeechApiSupported] = useState(true);
   const speechRecognitionRef = useRef<SpeechRecognition | null>(null);
   
@@ -69,7 +71,6 @@ export default function InterviewArea({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null); 
   const [videoStream, setVideoStream] = useState<MediaStream | null>(null);
-  const [isVideoRecordingActive, setIsVideoRecordingActive] = useState(false);
   const [recordedVideoUrl, setRecordedVideoUrl] = useState<string | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
 
@@ -109,6 +110,9 @@ export default function InterviewArea({
     
     return () => {
       console.log("Cleaning up InterviewArea: stopping media streams, recorder, and revoking object URL.");
+      if (speechRecognitionRef.current && isSpeechToTextRecording) {
+        speechRecognitionRef.current.stop();
+      }
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
         mediaRecorderRef.current.stop();
       }
@@ -135,6 +139,7 @@ export default function InterviewArea({
 
 
   useEffect(() => {
+    // Reset states when question changes
     setAnswer('');
     setShowEvaluation(false);
     setShowModelAnswer(false);
@@ -143,10 +148,13 @@ export default function InterviewArea({
       window.speechSynthesis.cancel();
     }
     
-    // Reset video recording specific states
-    if (mediaRecorderRef.current && isVideoRecordingActive) {
-      console.log("Question changed: Stopping active video recording.");
-      mediaRecorderRef.current.stop(); // onstop will handle setIsVideoRecordingActive(false)
+    if (isSpeechToTextRecording) {
+        console.log("Question changed: Stopping active speech recognition.");
+        speechRecognitionRef.current?.stop();
+    }
+    if (isVideoRecordingActive) {
+        console.log("Question changed: Stopping active video recording.");
+        mediaRecorderRef.current?.stop();
     }
     if (recordedVideoUrl) { 
       console.log("Question changed: Revoking old recorded video URL.");
@@ -156,12 +164,6 @@ export default function InterviewArea({
     recordedChunksRef.current = [];
     setRecordingStartTime(null);
     setRecordingDurationSeconds(0);
-
-    // Reset speech-to-text specific states
-    if (speechRecognitionRef.current && isSpeechToTextRecording) {
-      console.log("Question changed: Stopping active speech recognition.");
-      speechRecognitionRef.current.stop(); // onend will handle setIsSpeechToTextRecording(false)
-    }
     
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [question]); 
@@ -184,7 +186,7 @@ export default function InterviewArea({
 
     recognition.onstart = () => {
         console.log("SpeechRecognition: onstart fired.");
-        setIsSpeechToTextRecording(true);
+        // Note: isSpeechToTextRecording is set by the calling toggle function
     };
 
     recognition.onresult = (event) => {
@@ -203,7 +205,7 @@ export default function InterviewArea({
 
     recognition.onerror = (event) => {
       console.error("SpeechRecognition: onerror fired.", event.error, event.message);
-      setIsSpeechToTextRecording(false);
+      setIsSpeechToTextRecording(false); // Ensure state is reset on error
       let errorMessage = `Speech recognition error: ${event.error}.`;
       if (event.message) errorMessage += ` Message: ${event.message}`;
 
@@ -226,7 +228,9 @@ export default function InterviewArea({
 
     recognition.onend = () => {
       console.log("SpeechRecognition: onend fired.");
-      setIsSpeechToTextRecording(false);
+      // Only set to false if it wasn't intentionally stopped and restarted by video toggle
+      // The toggle functions will manage this state more directly.
+      // setIsSpeechToTextRecording(false); 
     };
     speechRecognitionRef.current = recognition;
     
@@ -240,6 +244,10 @@ export default function InterviewArea({
     return () => {
       if (speechRecognitionRef.current) {
         console.log("Cleaning up SpeechRecognition instance.");
+        speechRecognitionRef.current.onstart = null;
+        speechRecognitionRef.current.onresult = null;
+        speechRecognitionRef.current.onerror = null;
+        speechRecognitionRef.current.onend = null;
         speechRecognitionRef.current.abort(); 
       }
       if (typeof window !== 'undefined' && window.speechSynthesis && window.speechSynthesis.speaking) {
@@ -252,22 +260,29 @@ export default function InterviewArea({
 
   const toggleVoiceInput = () => {
     if (!speechRecognitionRef.current || !speechApiSupported) {
-      toast({ title: "Voice Input Unavailable", description: "Speech recognition is not supported by your browser or not initialized.", variant: "destructive"});
+      toast({ title: "Voice Input Unavailable", description: "Speech recognition is not supported or not initialized.", variant: "destructive"});
       return;
     }
-    if (isSpeechToTextRecording) {
+    if (isVideoRecordingActive) {
+      toast({ title: "Voice Input Unavailable", description: "Cannot start voice input while video recording is active. Stop video first.", variant: "default"});
+      return;
+    }
+
+    if (isSpeechToTextRecording) { // This implies it was started by voice-only
       console.log("Stopping SpeechRecognition (voice input).");
       speechRecognitionRef.current.stop();
+      setIsSpeechToTextRecording(false);
       toast({ title: "Voice Input Stopped"});
     } else {
       console.log("Attempting to start SpeechRecognition (voice input).");
       try {
-        setAnswer(''); // Clear previous text if starting new voice input
+        setAnswer(''); // Clear previous text for new voice input
         speechRecognitionRef.current.start();
+        setIsSpeechToTextRecording(true);
         toast({ title: "Voice Input Active", description: "Speak into your microphone. Click mic again to stop."});
       } catch (e: any) {
         console.error("Error starting speech recognition (voice input):", e);
-        toast({ title: "Speech Error", description: `Could not start voice input: ${e.message || e.name || 'Unknown error'}. Ensure microphone is available.`, variant: "destructive" });
+        toast({ title: "Speech Error", description: `Could not start voice input: ${e.message || e.name || 'Unknown error'}.`, variant: "destructive" });
         setIsSpeechToTextRecording(false); 
       }
     }
@@ -282,20 +297,31 @@ export default function InterviewArea({
       toast({ title: "Video Unavailable", description: "Camera access denied or stream not available for video recording.", variant: "destructive"});
       return;
     }
+    if (isSpeechToTextRecording && !isVideoRecordingActive) { // Voice-only is active
+        toast({ title: "Video Recording Unavailable", description: "Cannot start video recording while voice-only input is active. Stop voice input first.", variant: "default"});
+        return;
+    }
 
-    if (isVideoRecordingActive) {
-      console.log("Stopping MediaRecorder (video recording).");
+    if (isVideoRecordingActive) { // Video is active, stop everything related to it
+      console.log("Stopping MediaRecorder and associated SpeechRecognition (video recording).");
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
-        mediaRecorderRef.current.stop(); // onstop handles state and URL
+        mediaRecorderRef.current.stop(); 
       }
+      if (speechRecognitionRef.current && isSpeechToTextRecording) { // Stop speech if it was started with video
+        speechRecognitionRef.current.stop();
+      }
+      setIsVideoRecordingActive(false);
+      setIsSpeechToTextRecording(false); // Speech tied to video stops too
+
       if (recordingStartTime) {
         const duration = Math.round((Date.now() - recordingStartTime) / 1000);
         setRecordingDurationSeconds(duration);
         console.log(`Video recording duration: ${duration}s`);
       }
       setRecordingStartTime(null);
-      toast({ title: "Video Recording Stopped", description: "Processing video..."});
-    } else {
+      toast({ title: "Video Recording Stopped", description: "Processing video and transcript..."});
+
+    } else { // Video is not active, start it and associated speech recognition
       if (recordedVideoUrl) { 
         console.log("Revoking previous recorded video URL before new video recording.");
         URL.revokeObjectURL(recordedVideoUrl);
@@ -303,26 +329,24 @@ export default function InterviewArea({
       }
       recordedChunksRef.current = [];
       
-      console.log("Attempting to start MediaRecorder (video recording).");
+      console.log("Attempting to start MediaRecorder and associated SpeechRecognition (video recording).");
       try {
+        // Start MediaRecorder
         mediaRecorderRef.current = new MediaRecorder(videoStream, { mimeType: 'video/webm' });
-        
         mediaRecorderRef.current.onstart = () => {
             console.log("MediaRecorder: onstart fired.");
-            setIsVideoRecordingActive(true);
+            setIsVideoRecordingActive(true); // Set video recording active
             setRecordingStartTime(Date.now());
-            setRecordingDurationSeconds(0); // Reset duration
+            setRecordingDurationSeconds(0); 
         };
-
         mediaRecorderRef.current.ondataavailable = (event) => {
           if (event.data.size > 0) {
             recordedChunksRef.current.push(event.data);
           }
         };
-        
         mediaRecorderRef.current.onstop = () => {
           console.log("MediaRecorder: onstop fired.");
-          setIsVideoRecordingActive(false); 
+          // isVideoRecordingActive will be set to false by the toggle function
           if (recordedChunksRef.current.length > 0) {
             const videoBlob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
             const url = URL.createObjectURL(videoBlob);
@@ -331,24 +355,30 @@ export default function InterviewArea({
           } else {
             console.log("MediaRecorder: onstop fired but no data chunks recorded.");
             setRecordedVideoUrl(null);
-            setRecordingDurationSeconds(0); // No video, no duration.
+            setRecordingDurationSeconds(0);
           }
         };
-        
         mediaRecorderRef.current.start();
-        toast({ title: "Video Recording Started", description: "Click camera icon again to stop."});
+
+        // Start SpeechRecognition
+        if (speechRecognitionRef.current && speechApiSupported) {
+          setAnswer(''); // Clear previous text
+          speechRecognitionRef.current.start();
+          setIsSpeechToTextRecording(true); // Speech is active due to video
+        }
+        
+        toast({ title: "Video & Voice Recording Started", description: "Your video and voice for transcription are being recorded. Click camera icon again to stop."});
       } catch (e: any) {
-         console.error("MediaRecorder setup/start failed:", e);
-         toast({title: "Video Recording Error", description: `Could not start video recording: ${e.message || 'Unknown error'}. Ensure camera is available.`, variant: "destructive"});
+         console.error("MediaRecorder or SpeechRec setup/start failed for video mode:", e);
+         toast({title: "Recording Error", description: `Could not start video/voice recording: ${e.message || 'Unknown error'}.`, variant: "destructive"});
          setIsVideoRecordingActive(false);
+         setIsSpeechToTextRecording(false);
       }
     }
   };
 
 
   const handleSubmit = async () => {
-    // A user might be doing voice input or video recording, or both.
-    // We should not submit if either is active.
     if (isLoadingEvaluation || isSpeechToTextRecording || isVideoRecordingActive) {
       let busyReason = "current analysis to finish";
       if (isSpeechToTextRecording && isVideoRecordingActive) busyReason = "voice and video recording to finish";
@@ -359,6 +389,10 @@ export default function InterviewArea({
       toast({title: "Busy", description: `Please stop ${busyReason} before submitting.`, variant: "default"});
       return;
     }
+    if (!answer.trim()) {
+        toast({title: "No Answer Text", description: "Please provide an answer (type or use voice/video recording which includes transcription).", variant: "default"});
+        return;
+    }
     
     console.log("Submitting answer. Text:", answer, "Duration:", recordingDurationSeconds, "Video URL:", recordedVideoUrl);
     await onSubmitAnswer(answer, recordingDurationSeconds, recordedVideoUrl || null); 
@@ -366,7 +400,6 @@ export default function InterviewArea({
   };
 
   const handleGetModel = async () => {
-    // Also disable if any recording is active
     if (isLoadingModelAnswer || isSpeechToTextRecording || isVideoRecordingActive) return;
 
     if (typeof window !== 'undefined' && window.speechSynthesis && window.speechSynthesis.speaking) {
@@ -413,7 +446,7 @@ export default function InterviewArea({
   const timeFeedback = getTimeManagementFeedback();
 
   const voiceInputButtonDisabled = !speechApiSupported || isLoadingEvaluation || isLoadingNewQuestion || isVideoRecordingActive;
-  const videoRecordButtonDisabled = hasCameraPermission !== true || isLoadingEvaluation || isLoadingNewQuestion || isSpeechToTextRecording;
+  const videoRecordButtonDisabled = hasCameraPermission !== true || isLoadingEvaluation || isLoadingNewQuestion || (isSpeechToTextRecording && !isVideoRecordingActive);
   const submitButtonDisabled = !answer.trim() || isLoadingEvaluation || isLoadingNewQuestion || isSpeechToTextRecording || isVideoRecordingActive;
 
   return (
@@ -460,14 +493,14 @@ export default function InterviewArea({
         {hasCameraPermission === true && videoStream && ( 
           <CardContent className="relative">
             <video ref={videoPreviewRef} muted autoPlay playsInline className="w-full aspect-video rounded-md bg-muted border shadow-inner" />
-             {isVideoRecordingActive && (
-                <div className="absolute top-3 left-3 bg-red-600 text-white px-3 py-1 rounded-full text-xs flex items-center shadow-lg animate-pulse">
-                    <Disc3 size={14} className="mr-1.5 animate-spin-slow" /> REC Video
+             {(isSpeechToTextRecording && !isVideoRecordingActive) && ( // Voice-only REC
+                <div className="absolute top-3 left-3 bg-blue-600 text-white px-3 py-1 rounded-full text-xs flex items-center shadow-lg animate-pulse">
+                    <Mic size={14} className="mr-1.5" /> REC Voice
                 </div>
             )}
-            {isSpeechToTextRecording && (
-                 <div className={`absolute top-3 ${isVideoRecordingActive ? 'right-3' : 'left-3'} bg-blue-600 text-white px-3 py-1 rounded-full text-xs flex items-center shadow-lg animate-pulse`}>
-                    <Mic size={14} className="mr-1.5" /> REC Voice
+            {isVideoRecordingActive && ( // Video REC (implies speech is also active)
+                <div className="absolute top-3 left-3 bg-red-600 text-white px-3 py-1 rounded-full text-xs flex items-center shadow-lg animate-pulse">
+                    <Disc3 size={14} className="mr-1.5 animate-spin-slow" /> REC Video & Voice
                 </div>
             )}
           </CardContent>
@@ -487,12 +520,12 @@ export default function InterviewArea({
           <>
             <CardContent>
               <Textarea
-                placeholder="Type or use microphone to record your answer..."
+                placeholder="Type or use microphone/video to record your answer..."
                 value={answer}
                 onChange={(e) => setAnswer(e.target.value)}
                 rows={6}
                 className="text-base border-2 focus:border-primary transition-colors"
-                disabled={isLoadingEvaluation || isLoadingNewQuestion || isSpeechToTextRecording /* Allow typing during video recording */}
+                disabled={isLoadingEvaluation || isLoadingNewQuestion || isSpeechToTextRecording /* Allow typing while speech is active if user wants to correct */}
               />
             </CardContent>
             <CardFooter className="flex flex-col sm:flex-row justify-between items-center gap-2">
@@ -509,17 +542,17 @@ export default function InterviewArea({
                   <TooltipTrigger asChild>
                      <Button 
                       onClick={toggleVoiceInput} 
-                      variant={isSpeechToTextRecording ? "destructive" : "outline"}
+                      variant={(isSpeechToTextRecording && !isVideoRecordingActive) ? "destructive" : "outline"}
                       size="icon"
                       disabled={voiceInputButtonDisabled}
-                      aria-label={isSpeechToTextRecording ? "Stop voice input" : "Start voice input"}
-                      className={isSpeechToTextRecording ? "bg-blue-500 hover:bg-blue-600 text-white" : ""}
+                      aria-label={(isSpeechToTextRecording && !isVideoRecordingActive) ? "Stop voice input" : "Start voice input"}
+                      className={(isSpeechToTextRecording && !isVideoRecordingActive) ? "bg-blue-500 hover:bg-blue-600 text-white" : ""}
                     >
-                      {isSpeechToTextRecording ? <MicOff size={20} /> : <Mic size={20} />}
+                      {(isSpeechToTextRecording && !isVideoRecordingActive) ? <MicOff size={20} /> : <Mic size={20} />}
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>{!speechApiSupported ? "Voice input not supported" : (isSpeechToTextRecording ? "Stop voice input" : "Start voice input (for text answer)")}</p>
+                    <p>{!speechApiSupported ? "Voice input not supported" : ((isSpeechToTextRecording && !isVideoRecordingActive) ? "Stop voice input" : (isVideoRecordingActive ? "Voice input via video active" : "Start voice input (for text answer)"))}</p>
                   </TooltipContent>
                 </Tooltip>
                 
@@ -530,14 +563,14 @@ export default function InterviewArea({
                       variant={isVideoRecordingActive ? "destructive" : "outline"}
                       size="icon"
                       disabled={videoRecordButtonDisabled}
-                      aria-label={isVideoRecordingActive ? "Stop video recording" : "Start video recording"}
+                      aria-label={isVideoRecordingActive ? "Stop video & voice recording" : "Start video & voice recording"}
                        className={isVideoRecordingActive ? "bg-red-500 hover:bg-red-600 text-white" : ""}
                     >
                       {isVideoRecordingActive ? <Square size={20} /> : <Video size={20} />}
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>{hasCameraPermission !== true ? "Video recording disabled (check permissions)" : (isVideoRecordingActive ? "Stop video recording" : "Start video recording")}</p>
+                    <p>{hasCameraPermission !== true ? "Video recording disabled" : (isVideoRecordingActive ? "Stop video & linked voice recording" : ((isSpeechToTextRecording && !isVideoRecordingActive) ? "Video recording disabled (voice-only active)" : "Start video & linked voice recording"))}</p>
                   </TooltipContent>
                 </Tooltip>
 
@@ -670,5 +703,4 @@ export default function InterviewArea({
     </TooltipProvider>
   );
 }
-
     
