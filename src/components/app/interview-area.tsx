@@ -34,7 +34,7 @@ type InterviewAreaProps = {
   isLastQuestion: boolean;
 };
 
-const EXPECTED_ANSWER_TIME_SECONDS = 120; // Can be used for voice duration feedback
+const EXPECTED_ANSWER_TIME_SECONDS = 120; 
 
 export default function InterviewArea({
   question,
@@ -71,7 +71,6 @@ export default function InterviewArea({
   const { toast } = useToast();
 
   useEffect(() => {
-    // Reset states when question changes
     setAnswer('');
     setShowEvaluation(false);
     setShowModelAnswer(false);
@@ -83,7 +82,6 @@ export default function InterviewArea({
     if (isSpeechToTextRecording) {
         console.log("Question changed: Stopping active speech recognition.");
         speechRecognitionRef.current?.stop();
-        setIsSpeechToTextRecording(false); // Ensure state is reset
     }
     setVoiceRecordingStartTime(null);
     setVoiceRecordingDurationSeconds(0);
@@ -111,7 +109,7 @@ export default function InterviewArea({
         console.log("SpeechRecognition: onstart fired.");
         setIsSpeechToTextRecording(true);
         setVoiceRecordingStartTime(Date.now());
-        setVoiceRecordingDurationSeconds(0);
+        setVoiceRecordingDurationSeconds(0); // Reset duration at start
     };
 
     recognition.onresult = (event) => {
@@ -139,7 +137,7 @@ export default function InterviewArea({
 
       let errorMessage = `Speech recognition error: ${event.error}.`;
       if (event.message) errorMessage += ` Message: ${event.message}`;
-
+      
       if (event.error === 'no-speech') {
         errorMessage = "No speech was detected. Please ensure your microphone is unmuted, the volume is adequate, you're speaking clearly, and there isn't excessive background noise. Also, try closing other applications that might be using the microphone.";
       } else if (event.error === 'audio-capture') {
@@ -196,13 +194,13 @@ export default function InterviewArea({
 
     if (isSpeechToTextRecording) {
       console.log("Stopping SpeechRecognition (voice input).");
-      speechRecognitionRef.current.stop(); // This will trigger onend, which sets isSpeechToTextRecording to false and calculates duration.
+      speechRecognitionRef.current.stop(); 
       toast({ title: "Voice Input Stopped"});
     } else {
       console.log("Attempting to start SpeechRecognition (voice input).");
       try {
-        setAnswer(''); // Clear previous text for new voice input
-        speechRecognitionRef.current.start(); // This will trigger onstart.
+        setAnswer(''); 
+        speechRecognitionRef.current.start(); 
         toast({ title: "Voice Input Active", description: "Speak into your microphone. Click mic again to stop."});
       } catch (e: any) {
         console.error("Error starting speech recognition (voice input):", e);
@@ -221,11 +219,11 @@ export default function InterviewArea({
       return;
     }
     if (!answer.trim()) {
-        toast({title: "No Answer Text", description: "Please provide an answer (type or use voice recording).", variant: "default"});
+        toast({title: "No Answer Detected", description: "Please record your answer using the microphone.", variant: "default"});
         return;
     }
     
-    console.log("Submitting answer. Text:", answer, "Voice Duration:", voiceRecordingDurationSeconds);
+    console.log("Submitting answer. Text (hidden):", answer, "Voice Duration:", voiceRecordingDurationSeconds);
     await onSubmitAnswer(answer, voiceRecordingDurationSeconds); 
     setShowEvaluation(true);
   };
@@ -300,8 +298,8 @@ export default function InterviewArea({
         
         <CardContent className="relative">
           {isSpeechToTextRecording && (
-              <div className="absolute top-0 left-3 bg-blue-600 text-white px-3 py-1 rounded-full text-xs flex items-center shadow-lg animate-pulse z-10">
-                  <Mic size={14} className="mr-1.5" /> REC Voice
+              <div className="absolute top-0 left-1/2 -translate-x-1/2 bg-blue-600 text-white px-4 py-2 rounded-full text-sm flex items-center shadow-lg animate-pulse z-10">
+                  <Mic size={16} className="mr-2" /> RECORDING VOICE
               </div>
           )}
         </CardContent>
@@ -310,49 +308,70 @@ export default function InterviewArea({
           <>
             <CardContent>
               <Textarea
-                placeholder="Type or use microphone to record your answer..."
+                placeholder="Your transcribed answer will appear here (hidden)..."
                 value={answer}
-                onChange={(e) => setAnswer(e.target.value)}
-                rows={6}
-                className="text-base border-2 focus:border-primary transition-colors"
-                disabled={isLoadingEvaluation || isLoadingNewQuestion || isSpeechToTextRecording}
+                onChange={(e) => setAnswer(e.target.value)} // This line is technically not needed if user can't type
+                rows={3} // Can be reduced as it's hidden
+                className="text-base border-2 focus:border-primary transition-colors hidden" // Added 'hidden' class
+                disabled={true} // User should not type here directly
               />
+               {!isSpeechToTextRecording && !answer && (
+                <div className="text-center text-muted-foreground py-4">
+                  Click the microphone below to start recording your answer.
+                </div>
+              )}
+              {!isSpeechToTextRecording && answer && (
+                <div className="text-center text-green-600 py-4 flex items-center justify-center">
+                  <CheckCircle size={20} className="mr-2"/> Answer recorded. Ready to submit.
+                </div>
+              )}
             </CardContent>
             <CardFooter className="flex flex-col sm:flex-row justify-between items-center gap-2">
               <div className="flex gap-2 w-full sm:w-auto">
-                <Button onClick={onRegenerateQuestion} variant="outline" disabled={isLoadingEvaluation || isLoadingNewQuestion || isSpeechToTextRecording}>
-                  <RefreshCcw size={18} /> Regenerate
-                </Button>
-                <Button onClick={onSkipQuestion} variant="outline" disabled={isLoadingEvaluation || isLoadingNewQuestion || isSpeechToTextRecording}>
-                  <SkipForward size={18} /> Skip
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button onClick={onRegenerateQuestion} variant="outline" disabled={isLoadingEvaluation || isLoadingNewQuestion || isSpeechToTextRecording}>
+                      <RefreshCcw size={18} /> Regenerate
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent><p>Get a different question.</p></TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button onClick={onSkipQuestion} variant="outline" disabled={isLoadingEvaluation || isLoadingNewQuestion || isSpeechToTextRecording}>
+                      <SkipForward size={18} /> Skip
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent><p>Skip this question.</p></TooltipContent>
+                </Tooltip>
               </div>
-              <div className="flex gap-2 w-full sm:w-auto">
+              <div className="flex gap-2 w-full sm:w-auto items-center">
                 <Tooltip>
                   <TooltipTrigger asChild>
                      <Button 
                       onClick={toggleVoiceInput} 
                       variant={isSpeechToTextRecording ? "destructive" : "outline"}
-                      size="icon"
+                      size="lg" // Made button larger
                       disabled={voiceInputButtonDisabled}
                       aria-label={isSpeechToTextRecording ? "Stop voice input" : "Start voice input"}
-                      className={isSpeechToTextRecording ? "bg-blue-500 hover:bg-blue-600 text-white" : ""}
+                      className={`${isSpeechToTextRecording ? "bg-blue-500 hover:bg-blue-600 text-white" : ""} py-3 px-6 rounded-full`}
                     >
-                      {isSpeechToTextRecording ? <MicOff size={20} /> : <Mic size={20} />}
+                      {isSpeechToTextRecording ? <MicOff size={24} /> : <Mic size={24} />}
+                      <span className="ml-2 text-base">{isSpeechToTextRecording ? "Stop Recording" : "Record Answer"}</span>
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>{!speechApiSupported ? "Voice input not supported" : (isSpeechToTextRecording ? "Stop voice input" : "Start voice input (for text answer)")}</p>
+                    <p>{!speechApiSupported ? "Voice input not supported" : (isSpeechToTextRecording ? "Stop voice input" : "Start voice input")}</p>
                   </TooltipContent>
                 </Tooltip>
                 
-                <Button onClick={handleSubmit} disabled={submitButtonDisabled} className="flex-grow sm:flex-grow-0">
+                <Button onClick={handleSubmit} disabled={submitButtonDisabled} className="flex-grow sm:flex-grow-0" size="lg">
                   {isLoadingEvaluation ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                   ) : (
-                    <Send size={18} />
+                    <Send size={20} />
                   )}
-                  Submit Answer
+                  Submit 
                 </Button>
               </div>
             </CardFooter>
