@@ -25,7 +25,6 @@ export interface StoredAttempt {
   userAnswer: string;
   evaluation: EvaluateAnswerOutput;
   settings: Pick<InterviewSettings, 'jobRole' | 'interviewType' | 'difficultyLevel'>;
-  communicationAnalysis?: AnalyzeCommunicationOutput; // Optional for older attempts
-  recordingDurationSeconds?: number; // Optional for older attempts
-  recordedVideoUrl?: string; // Store the blob URL temporarily for session, won't persist in localStorage reliably
+  communicationAnalysis?: AnalyzeCommunicationOutput;
+  recordingDurationSeconds?: number; // Duration of voice input
 }

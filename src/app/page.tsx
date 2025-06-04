@@ -38,7 +38,7 @@ export default function Home() {
 
   // Loading states
   const [isLoadingSetup, setIsLoadingSetup] = useState<boolean>(false);
-  const [isLoadingEvaluation, setIsLoadingEvaluation] = useState<boolean>(false); // This will now cover both eval and comms analysis
+  const [isLoadingEvaluation, setIsLoadingEvaluation] = useState<boolean>(false); 
   const [isLoadingModelAnswer, setIsLoadingModelAnswer] = useState<boolean>(false);
   const [isLoadingNewQuestion, setIsLoadingNewQuestion] = useState<boolean>(false);
 
@@ -81,7 +81,7 @@ export default function Home() {
     setIsLoadingSetup(false);
   };
 
-  const handleSubmitAnswer = async (answer: string, recordingDurationSeconds: number, recordedVideoUrl: string | null) => {
+  const handleSubmitAnswer = async (answer: string, voiceRecordingDuration: number) => {
     if (!currentSettings || generatedQuestions.length === 0) return;
     setIsLoadingEvaluation(true);
     setCurrentEvaluation(null); 
@@ -102,12 +102,12 @@ export default function Home() {
       setCurrentEvaluation(evaluationResult);
       toast({ title: "Answer Evaluated!", description: `Score: ${evaluationResult.score}/100` });
 
-      // Analyze communication if answer text is available
-      if (answer.trim() && recordingDurationSeconds > 0) {
+      // Analyze communication if answer text is available and duration is positive
+      if (answer.trim() && voiceRecordingDuration > 0) {
         try {
           const commsInput: AnalyzeCommunicationInput = {
             answerText: answer,
-            recordingDurationSeconds: recordingDurationSeconds,
+            recordingDurationSeconds: voiceRecordingDuration,
             jobRole: currentSettings.jobRole,
             difficulty: currentSettings.difficultyLevel,
           };
@@ -118,14 +118,16 @@ export default function Home() {
            console.error("Error analyzing communication:", commsError);
            toast({ title: "Comms Analysis Error", description: "Failed to analyze communication aspects.", variant: "destructive" });
         }
+      } else if (answer.trim() && voiceRecordingDuration === 0) {
+        // User typed answer, no voice duration to analyze pace
+        toast({ title: "Note", description: "Communication pace analysis skipped as answer was typed or voice duration was zero."});
       }
     } catch (error) {
       console.error("Error during answer submission process:", error);
       toast({ title: "Error", description: "Failed to process answer fully.", variant: "destructive" });
     } finally {
       setIsLoadingEvaluation(false);
-      // Save progress even if one part fails, as long as we have an evaluation
-      if (evaluationResult) {
+      if (evaluationResult) { // Save progress if at least main evaluation was successful
         const newAttempt: StoredAttempt = {
           id: uuidv4(),
           timestamp: Date.now(),
@@ -138,9 +140,7 @@ export default function Home() {
             difficultyLevel: currentSettings.difficultyLevel,
           },
           communicationAnalysis: communicationResult ?? undefined,
-          recordingDurationSeconds: recordingDurationSeconds,
-          // Note: recordedVideoUrl from InterviewArea is a blob URL and won't be useful if directly stored in localStorage for long term.
-          // For now, we are not persisting the video blob itself, only its transient URL for immediate review if needed in ProgressTracker (though that's not implemented yet).
+          recordingDurationSeconds: voiceRecordingDuration,
         };
         setProgress(prevProgress => [...prevProgress, newAttempt]);
       }
@@ -243,8 +243,6 @@ export default function Home() {
 
   const handleFinishInterview = () => {
     setIsInterviewActive(false);
-    // Keep currentSettings to show the "Interview Complete!" screen
-    // setCurrentSettings(null); // Don't reset this here, reset when starting new
     setGeneratedQuestions([]);
     setCurrentQuestionIndex(0);
     setCurrentEvaluation(null);
@@ -262,6 +260,7 @@ export default function Home() {
           (<InterviewSetupForm 
             onSubmit={handleStartInterview} 
             isLoading={isLoadingSetup}
+            onDailyPractice={() => {}} // Kept for type consistency, but button removed
           />)
          : 
           (<Card className="w-full max-w-md mx-auto text-center shadow-xl">
@@ -275,7 +274,6 @@ export default function Home() {
             <CardContent>
               <Button onClick={() => {
                   setCurrentSettings(null); 
-                  // Also clear other states just in case for a truly fresh start
                   setGeneratedQuestions([]);
                   setCurrentQuestionIndex(0);
                   setCurrentEvaluation(null);
@@ -301,7 +299,7 @@ export default function Home() {
           onGetModelAnswer={handleGetModelAnswer}
           onNextQuestion={handleNextQuestion}
           onFinishInterview={handleFinishInterview}
-          isLoadingEvaluation={isLoadingEvaluation} // This now covers overall submission loading
+          isLoadingEvaluation={isLoadingEvaluation}
           isLoadingModelAnswer={isLoadingModelAnswer}
           isLoadingNewQuestion={isLoadingNewQuestion}
           evaluationResult={currentEvaluation}
