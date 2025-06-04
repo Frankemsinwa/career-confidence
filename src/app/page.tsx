@@ -90,6 +90,12 @@ export default function Home() {
     let evaluationResult: EvaluateAnswerOutput | null = null;
     let communicationResult: AnalyzeCommunicationOutput | null = null;
 
+    console.log("--- handleSubmitAnswer in page.tsx ---");
+    console.log("Received answer for AI:", `"${answer}"`);
+    console.log("Received voiceRecordingDuration:", voiceRecordingDuration);
+    console.log("Current Question:", generatedQuestions[currentQuestionIndex]);
+    console.log("Current Settings:", currentSettings);
+
     try {
       // Evaluate main answer
       const evalInput: EvaluateAnswerInput = {
@@ -98,6 +104,7 @@ export default function Home() {
         jobRole: currentSettings.jobRole,
         difficulty: currentSettings.difficultyLevel,
       };
+      console.log("Submitting to evaluateAnswer with input:", JSON.stringify(evalInput, null, 2));
       evaluationResult = await evaluateAnswer(evalInput);
       setCurrentEvaluation(evaluationResult);
       toast({ title: "Answer Evaluated!", description: `Score: ${evaluationResult.score}/100` });
@@ -111,6 +118,7 @@ export default function Home() {
             jobRole: currentSettings.jobRole,
             difficulty: currentSettings.difficultyLevel,
           };
+          console.log("Submitting to analyzeCommunication with input:", JSON.stringify(commsInput, null, 2));
           communicationResult = await analyzeCommunication(commsInput);
           setCurrentCommunicationAnalysis(communicationResult);
           toast({ title: "Communication Analyzed!" });
@@ -119,15 +127,17 @@ export default function Home() {
            toast({ title: "Comms Analysis Error", description: "Failed to analyze communication aspects.", variant: "destructive" });
         }
       } else if (answer.trim() && voiceRecordingDuration === 0) {
-        // User typed answer, no voice duration to analyze pace
+        // User typed answer, no voice duration to analyze pace (or voice only, no duration tracked specifically for this)
         toast({ title: "Note", description: "Communication pace analysis skipped as answer was typed or voice duration was zero."});
+      } else if (!answer.trim()){
+        toast({ title: "Note", description: "Answer text is empty. Core evaluation and text-based communication analysis will be limited."});
       }
     } catch (error) {
       console.error("Error during answer submission process:", error);
       toast({ title: "Error", description: "Failed to process answer fully.", variant: "destructive" });
     } finally {
       setIsLoadingEvaluation(false);
-      if (evaluationResult) { // Save progress if at least main evaluation was successful
+      if (evaluationResult) { 
         const newAttempt: StoredAttempt = {
           id: uuidv4(),
           timestamp: Date.now(),
@@ -315,3 +325,5 @@ export default function Home() {
     </div>
   );
 }
+
+    

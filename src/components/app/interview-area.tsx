@@ -3,10 +3,11 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
+// Textarea is not visually used but its state `answer` is.
+// import { Textarea } from '@/components/ui/textarea'; 
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
-import { Loader2, Send, SkipForward, RefreshCcw, Lightbulb, CheckCircle, XCircle, Target, Award, Mic, MicOff, Play, Square, Info, BarChartHorizontal, Disc3 } from 'lucide-react';
+import { Loader2, Send, SkipForward, RefreshCcw, Lightbulb, CheckCircle, XCircle, Target, Award, Mic, MicOff, Play, Square, BarChartHorizontal, Disc3 } from 'lucide-react';
 import type { EvaluateAnswerOutput } from '@/ai/flows/evaluate-answer';
 import type { AnalyzeCommunicationOutput } from '@/ai/flows/analyze-communication-flow';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -79,9 +80,9 @@ export default function InterviewArea({
       window.speechSynthesis.cancel();
     }
     
-    if (isSpeechToTextRecording) {
+    if (isSpeechToTextRecording && speechRecognitionRef.current) {
         console.log("Question changed: Stopping active speech recognition.");
-        speechRecognitionRef.current?.stop();
+        speechRecognitionRef.current.stop();
     }
     setVoiceRecordingStartTime(null);
     setVoiceRecordingDurationSeconds(0);
@@ -96,75 +97,74 @@ export default function InterviewArea({
     if (!SpeechRecognitionAPI) {
       console.warn("SpeechRecognition API not supported by this browser.");
       setSpeechApiSupported(false);
-      return; 
-    }
-    setSpeechApiSupported(true);
-    
-    const recognition = new SpeechRecognitionAPI();
-    recognition.continuous = true; 
-    recognition.interimResults = false; 
-    recognition.lang = 'en-US';
+    } else {
+        setSpeechApiSupported(true);
+        const recognition = new SpeechRecognitionAPI();
+        recognition.continuous = true; 
+        recognition.interimResults = false; 
+        recognition.lang = 'en-US';
 
-    recognition.onstart = () => {
-        console.log("SpeechRecognition: onstart fired.");
-        setIsSpeechToTextRecording(true);
-        setVoiceRecordingStartTime(Date.now());
-        setVoiceRecordingDurationSeconds(0); // Reset duration at start
-    };
+        recognition.onstart = () => {
+            console.log("SpeechRecognition: onstart fired.");
+            setIsSpeechToTextRecording(true);
+            setVoiceRecordingStartTime(Date.now());
+            setVoiceRecordingDurationSeconds(0); 
+        };
 
-    recognition.onresult = (event) => {
-      console.log("SpeechRecognition: onresult fired.", event.results);
-      let newTranscriptPart = "";
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) { 
-              newTranscriptPart += event.results[i][0].transcript.trim() + " ";
+        recognition.onresult = (event) => {
+          console.log("SpeechRecognition: onresult fired.", event.results);
+          let newTranscriptPart = "";
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+              if (event.results[i].isFinal) { 
+                  newTranscriptPart += event.results[i][0].transcript.trim() + " ";
+              }
           }
-      }
-      if (newTranscriptPart.trim()) {
-          console.log("SpeechRecognition: Transcript part:", newTranscriptPart);
-          setAnswer(prev => (prev ? prev.trim() + ' ' : '') + newTranscriptPart.trim());
-      }
-    };
+          if (newTranscriptPart.trim()) {
+              console.log("SpeechRecognition: Transcript part:", newTranscriptPart);
+              setAnswer(prev => (prev ? prev.trim() + ' ' : '') + newTranscriptPart.trim());
+          }
+        };
 
-    recognition.onerror = (event) => {
-      console.error("SpeechRecognition: onerror fired.", event.error, event.message);
-      setIsSpeechToTextRecording(false); 
-      if (voiceRecordingStartTime) {
-        const duration = Math.round((Date.now() - voiceRecordingStartTime) / 1000);
-        setVoiceRecordingDurationSeconds(duration);
-      }
-      setVoiceRecordingStartTime(null);
+        recognition.onerror = (event) => {
+          console.error("SpeechRecognition: onerror fired.", event.error, event.message);
+          setIsSpeechToTextRecording(false); 
+          if (voiceRecordingStartTime) {
+            const duration = Math.round((Date.now() - voiceRecordingStartTime) / 1000);
+            setVoiceRecordingDurationSeconds(duration);
+          }
+          setVoiceRecordingStartTime(null);
 
-      let errorMessage = `Speech recognition error: ${event.error}.`;
-      if (event.message) errorMessage += ` Message: ${event.message}`;
-      
-      if (event.error === 'no-speech') {
-        errorMessage = "No speech was detected. Please ensure your microphone is unmuted, the volume is adequate, you're speaking clearly, and there isn't excessive background noise. Also, try closing other applications that might be using the microphone.";
-      } else if (event.error === 'audio-capture') {
-        errorMessage = "Audio capture failed. Ensure your microphone is properly connected, configured in your OS, and not being used exclusively by another application. You may need to re-grant microphone permissions.";
-      } else if (event.error === 'not-allowed') {
-        errorMessage = "Microphone access was denied or disallowed by the browser or OS. Please check permissions in your browser settings for this site and ensure your OS allows microphone access for this browser. You might need to refresh the page after granting permissions.";
-      } else if (event.error === 'network') {
-        errorMessage = "A network error occurred during speech recognition. Please check your internet connection as some speech services rely on it.";
-      } else if (event.error === 'aborted') {
-        errorMessage = "Speech recognition was aborted. This might happen if you navigate away or if another action interrupted it. Please try again.";
-      } else if (event.error === 'service-not-allowed') {
-        errorMessage = "The speech recognition service is not allowed or unavailable. This could be due to browser/OS settings, policy restrictions, or a temporary service issue."
-      }
-      toast({ title: "Voice Input Error", description: errorMessage, variant: "destructive", duration: 10000 });
-    };
+          let errorMessage = `Speech recognition error: ${event.error}.`;
+          if (event.message) errorMessage += ` Message: ${event.message}`;
+          
+          if (event.error === 'no-speech') {
+            errorMessage = "No speech was detected. Please ensure your microphone is unmuted, the volume is adequate, you're speaking clearly, and there isn't excessive background noise. Also, try closing other applications that might be using the microphone.";
+          } else if (event.error === 'audio-capture') {
+            errorMessage = "Audio capture failed. Ensure your microphone is properly connected, configured in your OS, and not being used exclusively by another application. You may need to re-grant microphone permissions.";
+          } else if (event.error === 'not-allowed') {
+            errorMessage = "Microphone access was denied or disallowed by the browser or OS. Please check permissions in your browser settings for this site and ensure your OS allows microphone access for this browser. You might need to refresh the page after granting permissions.";
+          } else if (event.error === 'network') {
+            errorMessage = "A network error occurred during speech recognition. Please check your internet connection as some speech services rely on it.";
+          } else if (event.error === 'aborted') {
+            errorMessage = "Speech recognition was aborted. This might happen if you navigate away or if another action interrupted it. Please try again.";
+          } else if (event.error === 'service-not-allowed') {
+            errorMessage = "The speech recognition service is not allowed or unavailable. This could be due to browser/OS settings, policy restrictions, or a temporary service issue."
+          }
+          toast({ title: "Voice Input Error", description: errorMessage, variant: "destructive", duration: 10000 });
+        };
 
-    recognition.onend = () => {
-      console.log("SpeechRecognition: onend fired.");
-      setIsSpeechToTextRecording(false);
-      if (voiceRecordingStartTime) {
-        const duration = Math.round((Date.now() - voiceRecordingStartTime) / 1000);
-        setVoiceRecordingDurationSeconds(duration);
-        console.log(`Voice input duration: ${duration}s`);
-      }
-      setVoiceRecordingStartTime(null);
-    };
-    speechRecognitionRef.current = recognition;
+        recognition.onend = () => {
+          console.log("SpeechRecognition: onend fired.");
+          setIsSpeechToTextRecording(false);
+          if (voiceRecordingStartTime) {
+            const duration = Math.round((Date.now() - voiceRecordingStartTime) / 1000);
+            setVoiceRecordingDurationSeconds(duration);
+            console.log(`Voice input duration: ${duration}s`);
+          }
+          setVoiceRecordingStartTime(null);
+        };
+        speechRecognitionRef.current = recognition;
+    }
     
     if (!('speechSynthesis' in window)) {
       console.warn("SpeechSynthesis API not supported by this browser.");
@@ -183,7 +183,7 @@ export default function InterviewArea({
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [toast]); 
+  }, []); // Dependency array changed to [] to run once on mount
 
 
   const toggleVoiceInput = () => {
@@ -200,6 +200,7 @@ export default function InterviewArea({
       console.log("Attempting to start SpeechRecognition (voice input).");
       try {
         setAnswer(''); 
+        setVoiceRecordingDurationSeconds(0); // Reset duration
         speechRecognitionRef.current.start(); 
         toast({ title: "Voice Input Active", description: "Speak into your microphone. Click mic again to stop."});
       } catch (e: any) {
@@ -219,7 +220,7 @@ export default function InterviewArea({
       return;
     }
     if (!answer.trim()) {
-        toast({title: "No Answer Detected", description: "Please record your answer using the microphone.", variant: "default"});
+        toast({title: "No Answer Recorded", description: "Please record your answer using the microphone first.", variant: "default"});
         return;
     }
     
@@ -302,25 +303,24 @@ export default function InterviewArea({
                   <Mic size={16} className="mr-2" /> RECORDING VOICE
               </div>
           )}
+          {/* Textarea is hidden, but its state `answer` is used */}
+          <textarea
+            value={answer}
+            readOnly // User doesn't type here, it's populated by SpeechRecognition
+            rows={3}
+            className="hidden" 
+          />
         </CardContent>
 
         {!showEvaluation && !isLoadingNewQuestion && (
           <>
             <CardContent>
-              <Textarea
-                placeholder="Your transcribed answer will appear here (hidden)..."
-                value={answer}
-                onChange={(e) => setAnswer(e.target.value)} // This line is technically not needed if user can't type
-                rows={3} // Can be reduced as it's hidden
-                className="text-base border-2 focus:border-primary transition-colors hidden" // Added 'hidden' class
-                disabled={true} // User should not type here directly
-              />
-               {!isSpeechToTextRecording && !answer && (
+              {!isSpeechToTextRecording && !answer.trim() && (
                 <div className="text-center text-muted-foreground py-4">
                   Click the microphone below to start recording your answer.
                 </div>
               )}
-              {!isSpeechToTextRecording && answer && (
+              {!isSpeechToTextRecording && answer.trim() && (
                 <div className="text-center text-green-600 py-4 flex items-center justify-center">
                   <CheckCircle size={20} className="mr-2"/> Answer recorded. Ready to submit.
                 </div>
@@ -351,7 +351,7 @@ export default function InterviewArea({
                      <Button 
                       onClick={toggleVoiceInput} 
                       variant={isSpeechToTextRecording ? "destructive" : "outline"}
-                      size="lg" // Made button larger
+                      size="lg" 
                       disabled={voiceInputButtonDisabled}
                       aria-label={isSpeechToTextRecording ? "Stop voice input" : "Start voice input"}
                       className={`${isSpeechToTextRecording ? "bg-blue-500 hover:bg-blue-600 text-white" : ""} py-3 px-6 rounded-full`}
@@ -488,3 +488,5 @@ export default function InterviewArea({
     </TooltipProvider>
   );
 }
+
+    
