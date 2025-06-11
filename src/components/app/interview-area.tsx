@@ -3,18 +3,16 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
-// Textarea is not visually used but its state `answer` is.
-// import { Textarea } from '@/components/ui/textarea'; 
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+// Textarea is visually hidden but its state `answer` is used.
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
-import { Loader2, Send, SkipForward, RefreshCcw, Lightbulb, CheckCircle, XCircle, Target, Award, Mic, MicOff, Play, Square, BarChartHorizontal, Disc3 } from 'lucide-react';
+import { Loader2, Send, SkipForward, RefreshCcw, Lightbulb, CheckCircle, Mic, MicOff, Play, Square, Target, Award, BarChartHorizontal, Disc3, AlertCircle } from 'lucide-react';
 import type { EvaluateAnswerOutput } from '@/ai/flows/evaluate-answer';
 import type { AnalyzeCommunicationOutput } from '@/ai/flows/analyze-communication-flow';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-
 
 type InterviewAreaProps = {
   question: string;
@@ -59,9 +57,10 @@ export default function InterviewArea({
   const [showEvaluation, setShowEvaluation] = useState(false);
   const [showModelAnswer, setShowModelAnswer] = useState(false);
   
-  const [isSpeechToTextRecording, setIsSpeechToTextRecording] = useState(false);
-  const [speechApiSupported, setSpeechApiSupported] = useState(true);
-  const speechRecognitionRef = useRef<SpeechRecognition | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
   
   const [isSpeakingModelAnswer, setIsSpeakingModelAnswer] = useState(false);
   const [speechSynthesisSupported, setSpeechSynthesisSupported] = useState(true);
@@ -79,92 +78,19 @@ export default function InterviewArea({
     if (typeof window !== 'undefined' && window.speechSynthesis && window.speechSynthesis.speaking) {
       window.speechSynthesis.cancel();
     }
-    
-    if (isSpeechToTextRecording && speechRecognitionRef.current) {
-        console.log("Question changed: Stopping active speech recognition.");
-        speechRecognitionRef.current.stop();
+    if (isRecording && mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop();
     }
     setVoiceRecordingStartTime(null);
     setVoiceRecordingDurationSeconds(0);
+    setIsRecording(false);
+    setIsTranscribing(false);
     
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [question]); 
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-
-    const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognitionAPI) {
-      console.warn("SpeechRecognition API not supported by this browser.");
-      setSpeechApiSupported(false);
-    } else {
-        setSpeechApiSupported(true);
-        const recognition = new SpeechRecognitionAPI();
-        recognition.continuous = true; 
-        recognition.interimResults = false; 
-        recognition.lang = 'en-US';
-
-        recognition.onstart = () => {
-            console.log("SpeechRecognition: onstart fired.");
-            setIsSpeechToTextRecording(true);
-            setVoiceRecordingStartTime(Date.now());
-            setVoiceRecordingDurationSeconds(0); 
-        };
-
-        recognition.onresult = (event) => {
-          console.log("SpeechRecognition: onresult fired.", event.results);
-          let newTranscriptPart = "";
-          for (let i = event.resultIndex; i < event.results.length; ++i) {
-              if (event.results[i].isFinal) { 
-                  newTranscriptPart += event.results[i][0].transcript.trim() + " ";
-              }
-          }
-          if (newTranscriptPart.trim()) {
-              console.log("SpeechRecognition: Transcript part:", newTranscriptPart);
-              setAnswer(prev => (prev ? prev.trim() + ' ' : '') + newTranscriptPart.trim());
-          }
-        };
-
-        recognition.onerror = (event) => {
-          console.error("SpeechRecognition: onerror fired.", event.error, event.message);
-          setIsSpeechToTextRecording(false); 
-          if (voiceRecordingStartTime) {
-            const duration = Math.round((Date.now() - voiceRecordingStartTime) / 1000);
-            setVoiceRecordingDurationSeconds(duration);
-          }
-          setVoiceRecordingStartTime(null);
-
-          let errorMessage = `Speech recognition error: ${event.error}.`;
-          if (event.message) errorMessage += ` Message: ${event.message}`;
-          
-          if (event.error === 'no-speech') {
-            errorMessage = "No speech was detected. Please ensure your microphone is unmuted, the volume is adequate, you're speaking clearly, and there isn't excessive background noise. Also, try closing other applications that might be using the microphone.";
-          } else if (event.error === 'audio-capture') {
-            errorMessage = "Audio capture failed. Ensure your microphone is properly connected, configured in your OS, and not being used exclusively by another application. You may need to re-grant microphone permissions.";
-          } else if (event.error === 'not-allowed') {
-            errorMessage = "Microphone access was denied or disallowed by the browser or OS. Please check permissions in your browser settings for this site and ensure your OS allows microphone access for this browser. You might need to refresh the page after granting permissions.";
-          } else if (event.error === 'network') {
-            errorMessage = "A network error occurred during speech recognition. Please check your internet connection as some speech services rely on it.";
-          } else if (event.error === 'aborted') {
-            errorMessage = "Speech recognition was aborted. This might happen if you navigate away or if another action interrupted it. Please try again.";
-          } else if (event.error === 'service-not-allowed') {
-            errorMessage = "The speech recognition service is not allowed or unavailable. This could be due to browser/OS settings, policy restrictions, or a temporary service issue."
-          }
-          toast({ title: "Voice Input Error", description: errorMessage, variant: "destructive", duration: 10000 });
-        };
-
-        recognition.onend = () => {
-          console.log("SpeechRecognition: onend fired.");
-          setIsSpeechToTextRecording(false);
-          if (voiceRecordingStartTime) {
-            const duration = Math.round((Date.now() - voiceRecordingStartTime) / 1000);
-            setVoiceRecordingDurationSeconds(duration);
-            console.log(`Voice input duration: ${duration}s`);
-          }
-          setVoiceRecordingStartTime(null);
-        };
-        speechRecognitionRef.current = recognition;
-    }
     
     if (!('speechSynthesis' in window)) {
       console.warn("SpeechSynthesis API not supported by this browser.");
@@ -174,63 +100,120 @@ export default function InterviewArea({
     }
     
     return () => {
-      if (speechRecognitionRef.current) {
-        console.log("Cleaning up SpeechRecognition instance.");
-        speechRecognitionRef.current.abort(); 
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        mediaRecorderRef.current.stop();
       }
       if (typeof window !== 'undefined' && window.speechSynthesis && window.speechSynthesis.speaking) {
         window.speechSynthesis.cancel();
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Dependency array changed to [] to run once on mount
+  }, []); 
 
 
-  const toggleVoiceInput = () => {
-    if (!speechRecognitionRef.current || !speechApiSupported) {
-      toast({ title: "Voice Input Unavailable", description: "Speech recognition is not supported or not initialized.", variant: "destructive"});
+  const toggleRecording = async () => {
+    if (isTranscribing) {
+      toast({ title: "Busy", description: "Please wait for transcription to complete.", variant: "default" });
       return;
     }
 
-    if (isSpeechToTextRecording) {
-      console.log("Stopping SpeechRecognition (voice input).");
-      speechRecognitionRef.current.stop(); 
-      toast({ title: "Voice Input Stopped"});
+    if (isRecording) {
+      // Stop recording
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        mediaRecorderRef.current.stop(); // onstop will handle the rest
+      }
+      setIsRecording(false); 
+      // Duration is set in onstop
     } else {
-      console.log("Attempting to start SpeechRecognition (voice input).");
+      // Start recording
+      setAnswer(''); // Clear previous answer
+      setVoiceRecordingDurationSeconds(0);
+      audioChunksRef.current = [];
+
       try {
-        setAnswer(''); 
-        setVoiceRecordingDurationSeconds(0); // Reset duration
-        speechRecognitionRef.current.start(); 
-        toast({ title: "Voice Input Active", description: "Speak into your microphone. Click mic again to stop."});
-      } catch (e: any) {
-        console.error("Error starting speech recognition (voice input):", e);
-        toast({ title: "Speech Error", description: `Could not start voice input: ${e.message || e.name || 'Unknown error'}.`, variant: "destructive" });
-        setIsSpeechToTextRecording(false); 
-        setVoiceRecordingStartTime(null);
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        mediaRecorderRef.current = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+
+        mediaRecorderRef.current.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            audioChunksRef.current.push(event.data);
+          }
+        };
+
+        mediaRecorderRef.current.onstart = () => {
+          setIsRecording(true);
+          setVoiceRecordingStartTime(Date.now());
+          toast({ title: "Recording Started", description: "Speak your answer. Click mic again to stop."});
+        };
+        
+        mediaRecorderRef.current.onstop = async () => {
+          setIsRecording(false); // Explicitly set here too
+          setIsTranscribing(true);
+          toast({ title: "Recording Stopped", description: "Transcribing your answer..." });
+
+          if (voiceRecordingStartTime) {
+            const duration = Math.round((Date.now() - voiceRecordingStartTime) / 1000);
+            setVoiceRecordingDurationSeconds(duration);
+          }
+          setVoiceRecordingStartTime(null);
+
+          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+          const formData = new FormData();
+          formData.append('audio', audioBlob, 'recording.webm');
+
+          try {
+            const response = await fetch('/api/transcribe', {
+              method: 'POST',
+              body: formData,
+            });
+
+            if (!response.ok) {
+              const errorData = await response.json();
+              throw new Error(errorData.error || `Server error: ${response.status}`);
+            }
+
+            const result = await response.json();
+            setAnswer(result.transcript);
+            toast({ title: "Transcription Complete!", description: "Your answer is ready to submit."});
+          } catch (error) {
+            console.error("Transcription API error:", error);
+            const message = error instanceof Error ? error.message : "Unknown transcription error.";
+            toast({ title: "Transcription Failed", description: message, variant: "destructive", duration: 7000 });
+            setAnswer(''); // Clear answer if transcription failed
+          } finally {
+            setIsTranscribing(false);
+            // Clean up the stream tracks
+            stream.getTracks().forEach(track => track.stop());
+          }
+        };
+
+        mediaRecorderRef.current.start();
+      } catch (err) {
+        console.error("Error accessing microphone or starting MediaRecorder:", err);
+        const message = err instanceof Error ? err.message : "Could not start recording.";
+        toast({ title: "Recording Error", description: `Failed to start audio recording: ${message}`, variant: "destructive", duration: 7000 });
+        setIsRecording(false);
       }
     }
   };
 
   const handleSubmit = async () => {
-    if (isLoadingEvaluation || isSpeechToTextRecording) {
-      let busyReason = isLoadingEvaluation ? "current analysis to finish" : "voice input to finish";
-      console.log("Submit attempt while busy, returning.");
-      toast({title: "Busy", description: `Please wait for ${busyReason} before submitting.`, variant: "default"});
+    if (isLoadingEvaluation || isRecording || isTranscribing) {
+      let busyReason = isLoadingEvaluation ? "current analysis" : (isRecording ? "recording" : "transcription");
+      toast({title: "Busy", description: `Please wait for ${busyReason} to finish.`, variant: "default"});
       return;
     }
     if (!answer.trim()) {
-        toast({title: "No Answer Recorded", description: "Please record your answer using the microphone first.", variant: "default"});
+        toast({title: "No Answer Transcribed", description: "Please record your answer using the microphone first. The transcribed text is empty.", variant: "default"});
         return;
     }
     
-    console.log("Submitting answer. Text (hidden):", answer, "Voice Duration:", voiceRecordingDurationSeconds);
     await onSubmitAnswer(answer, voiceRecordingDurationSeconds); 
     setShowEvaluation(true);
   };
 
   const handleGetModel = async () => {
-    if (isLoadingModelAnswer || isSpeechToTextRecording) return;
+    if (isLoadingModelAnswer || isRecording || isTranscribing) return;
 
     if (typeof window !== 'undefined' && window.speechSynthesis && window.speechSynthesis.speaking) {
       window.speechSynthesis.cancel(); 
@@ -275,8 +258,8 @@ export default function InterviewArea({
   };
   const timeFeedback = getTimeManagementFeedback();
 
-  const voiceInputButtonDisabled = !speechApiSupported || isLoadingEvaluation || isLoadingNewQuestion;
-  const submitButtonDisabled = !answer.trim() || isLoadingEvaluation || isLoadingNewQuestion || isSpeechToTextRecording;
+  const recordButtonDisabled = isLoadingEvaluation || isLoadingNewQuestion || isTranscribing;
+  const submitButtonDisabled = !answer.trim() || isLoadingEvaluation || isLoadingNewQuestion || isRecording || isTranscribing;
 
   return (
     <TooltipProvider>
@@ -298,30 +281,36 @@ export default function InterviewArea({
         </CardHeader>
         
         <CardContent className="relative">
-          {isSpeechToTextRecording && (
+          {isRecording && (
               <div className="absolute top-0 left-1/2 -translate-x-1/2 bg-blue-600 text-white px-4 py-2 rounded-full text-sm flex items-center shadow-lg animate-pulse z-10">
                   <Mic size={16} className="mr-2" /> RECORDING VOICE
+              </div>
+          )}
+           {isTranscribing && (
+              <div className="absolute top-0 left-1/2 -translate-x-1/2 bg-purple-600 text-white px-4 py-2 rounded-full text-sm flex items-center shadow-lg animate-pulse z-10">
+                  <Loader2 size={16} className="mr-2 animate-spin" /> TRANSCRIBING...
               </div>
           )}
           {/* Textarea is hidden, but its state `answer` is used */}
           <textarea
             value={answer}
-            readOnly // User doesn't type here, it's populated by SpeechRecognition
+            readOnly 
             rows={3}
             className="hidden" 
+            aria-hidden="true"
           />
         </CardContent>
 
         {!showEvaluation && !isLoadingNewQuestion && (
           <>
             <CardContent>
-              {!isSpeechToTextRecording && !answer.trim() && (
+              {(!isRecording && !isTranscribing && !answer.trim()) && (
                 <div className="text-center text-muted-foreground py-4">
                   Click the microphone below to start recording your answer.
                 </div>
               )}
-              {!isSpeechToTextRecording && answer.trim() && (
-                <div className="text-center text-green-600 py-4 flex items-center justify-center">
+              {(!isRecording && !isTranscribing && answer.trim()) && (
+                 <div className="text-center text-green-600 py-4 flex items-center justify-center">
                   <CheckCircle size={20} className="mr-2"/> Answer recorded. Ready to submit.
                 </div>
               )}
@@ -330,7 +319,7 @@ export default function InterviewArea({
               <div className="flex gap-2 w-full sm:w-auto">
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button onClick={onRegenerateQuestion} variant="outline" disabled={isLoadingEvaluation || isLoadingNewQuestion || isSpeechToTextRecording}>
+                    <Button onClick={onRegenerateQuestion} variant="outline" disabled={recordButtonDisabled || isRecording}>
                       <RefreshCcw size={18} /> Regenerate
                     </Button>
                   </TooltipTrigger>
@@ -338,7 +327,7 @@ export default function InterviewArea({
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button onClick={onSkipQuestion} variant="outline" disabled={isLoadingEvaluation || isLoadingNewQuestion || isSpeechToTextRecording}>
+                    <Button onClick={onSkipQuestion} variant="outline" disabled={recordButtonDisabled || isRecording}>
                       <SkipForward size={18} /> Skip
                     </Button>
                   </TooltipTrigger>
@@ -349,19 +338,19 @@ export default function InterviewArea({
                 <Tooltip>
                   <TooltipTrigger asChild>
                      <Button 
-                      onClick={toggleVoiceInput} 
-                      variant={isSpeechToTextRecording ? "destructive" : "outline"}
+                      onClick={toggleRecording} 
+                      variant={isRecording ? "destructive" : "outline"}
                       size="lg" 
-                      disabled={voiceInputButtonDisabled}
-                      aria-label={isSpeechToTextRecording ? "Stop voice input" : "Start voice input"}
-                      className={`${isSpeechToTextRecording ? "bg-blue-500 hover:bg-blue-600 text-white" : ""} py-3 px-6 rounded-full`}
+                      disabled={recordButtonDisabled}
+                      aria-label={isRecording ? "Stop recording" : "Start recording answer"}
+                      className={`${isRecording ? "bg-blue-500 hover:bg-blue-600 text-white" : ""} py-3 px-6 rounded-full`}
                     >
-                      {isSpeechToTextRecording ? <MicOff size={24} /> : <Mic size={24} />}
-                      <span className="ml-2 text-base">{isSpeechToTextRecording ? "Stop Recording" : "Record Answer"}</span>
+                      {isRecording ? <MicOff size={24} /> : <Mic size={24} />}
+                      <span className="ml-2 text-base">{isRecording ? "Stop Recording" : (isTranscribing ? "Processing..." : "Record Answer")}</span>
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>{!speechApiSupported ? "Voice input not supported" : (isSpeechToTextRecording ? "Stop voice input" : "Start voice input")}</p>
+                    <p>{isRecording ? "Stop recording" : (isTranscribing ? "Processing audio..." : "Start recording answer")}</p>
                   </TooltipContent>
                 </Tooltip>
                 
@@ -393,7 +382,7 @@ export default function InterviewArea({
           <CardHeader>
             <CardTitle className="text-2xl font-semibold text-primary flex items-center gap-2"><Award size={24}/> Performance Feedback</CardTitle>
             <Alert variant={evaluationResult.score >= 70 ? "default" : "destructive"} className="mt-2 border-2">
-              <Disc3 className={`h-5 w-5 ${evaluationResult.score >=70 ? 'text-green-500': 'text-red-500'}`} />
+               <Disc3 className={`h-5 w-5 ${evaluationResult.score >=70 ? 'text-green-500': 'text-red-500'}`} />
               <AlertTitle className="text-xl">Your Score: {evaluationResult.score}/100</AlertTitle>
             </Alert>
           </CardHeader>
@@ -421,11 +410,20 @@ export default function InterviewArea({
                 </div>
               </div>
             )}
+             {!answer.trim() && communicationAnalysisResult?.speakingPaceWPM === 0 && (
+                <Alert variant="destructive" className="mt-3">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle>Note on Analysis</AlertTitle>
+                  <AlertDescription>
+                    Since no text was transcribed from your recording, text-based communication analysis (clarity, confidence from text, filler words, speaking pace) could not be performed or will be based on empty input. The duration of your recording was still captured.
+                  </AlertDescription>
+                </Alert>
+              )}
             
             {!modelAnswerText && (
                <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button onClick={handleGetModel} variant="outline" className="w-full sm:w-auto border-accent text-accent-foreground hover:bg-accent/10 mt-2" disabled={isLoadingModelAnswer || isSpeechToTextRecording}>
+                  <Button onClick={handleGetModel} variant="outline" className="w-full sm:w-auto border-accent text-accent-foreground hover:bg-accent/10 mt-2" disabled={isLoadingModelAnswer || isRecording || isTranscribing}>
                     {isLoadingModelAnswer ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
@@ -453,7 +451,7 @@ export default function InterviewArea({
                     onClick={handleSpeakModelAnswer}
                     variant="outline" 
                     size="icon"
-                    disabled={!speechSynthesisSupported || isLoadingModelAnswer || isSpeechToTextRecording}
+                    disabled={!speechSynthesisSupported || isLoadingModelAnswer || isRecording || isTranscribing}
                     aria-label={isSpeakingModelAnswer ? "Stop speaking" : "Speak model answer"}
                     className={isSpeakingModelAnswer ? "border-destructive text-destructive" : "border-primary text-primary"}
                   >
@@ -488,5 +486,3 @@ export default function InterviewArea({
     </TooltipProvider>
   );
 }
-
-    

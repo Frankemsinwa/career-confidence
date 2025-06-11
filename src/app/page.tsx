@@ -81,6 +81,7 @@ export default function Home() {
     setIsLoadingSetup(false);
   };
 
+  // voiceRecordingDuration is now from MediaRecorder (client-side timer)
   const handleSubmitAnswer = async (answer: string, voiceRecordingDuration: number) => {
     if (!currentSettings || generatedQuestions.length === 0) return;
     setIsLoadingEvaluation(true);
@@ -91,8 +92,8 @@ export default function Home() {
     let communicationResult: AnalyzeCommunicationOutput | null = null;
 
     console.log("--- handleSubmitAnswer in page.tsx ---");
-    console.log("Received answer for AI:", `"${answer}"`);
-    console.log("Received voiceRecordingDuration:", voiceRecordingDuration);
+    console.log("Received answer (from Whisper):", `"${answer}"`);
+    console.log("Received voiceRecordingDuration (from client timer):", voiceRecordingDuration);
     console.log("Current Question:", generatedQuestions[currentQuestionIndex]);
     console.log("Current Settings:", currentSettings);
 
@@ -100,7 +101,7 @@ export default function Home() {
       // Evaluate main answer
       const evalInput: EvaluateAnswerInput = {
         question: generatedQuestions[currentQuestionIndex],
-        answer: answer,
+        answer: answer, // This `answer` comes from server-side transcription via Whisper
         jobRole: currentSettings.jobRole,
         difficulty: currentSettings.difficultyLevel,
       };
@@ -126,12 +127,32 @@ export default function Home() {
            console.error("Error analyzing communication:", commsError);
            toast({ title: "Comms Analysis Error", description: "Failed to analyze communication aspects.", variant: "destructive" });
         }
+      } else if (!answer.trim() && voiceRecordingDuration > 0){
+        // This case means recording happened, but transcription was empty or failed silently client-side (should be caught there)
+        toast({ title: "Note", description: "Answer text is empty, though recording had duration. Core evaluation and text-based communication analysis will be limited."});
+         // Still attempt communication analysis with duration if available
+        try {
+          const commsInput: AnalyzeCommunicationInput = {
+            answerText: "", // explicitly empty
+            recordingDurationSeconds: voiceRecordingDuration,
+            jobRole: currentSettings.jobRole,
+            difficulty: currentSettings.difficultyLevel,
+          };
+          communicationResult = await analyzeCommunication(commsInput);
+          setCurrentCommunicationAnalysis(communicationResult);
+          toast({ title: "Communication Analysis (Duration Only)"});
+        } catch (commsError) {
+           console.error("Error analyzing communication (duration only):", commsError);
+        }
+
       } else if (answer.trim() && voiceRecordingDuration === 0) {
-        // User typed answer, no voice duration to analyze pace (or voice only, no duration tracked specifically for this)
-        toast({ title: "Note", description: "Communication pace analysis skipped as answer was typed or voice duration was zero."});
-      } else if (!answer.trim()){
-        toast({ title: "Note", description: "Answer text is empty. Core evaluation and text-based communication analysis will be limited."});
+        // User somehow submitted text without triggering a recording duration (e.g. future manual text input)
+         toast({ title: "Note", description: "Communication pace analysis skipped as recording duration was zero."});
+      } else if (!answer.trim() && voiceRecordingDuration === 0) {
+        toast({ title: "Note", description: "Answer text is empty and no recording duration. Evaluation and communication analysis will be limited."});
       }
+
+
     } catch (error) {
       console.error("Error during answer submission process:", error);
       toast({ title: "Error", description: "Failed to process answer fully.", variant: "destructive" });
@@ -149,10 +170,28 @@ export default function Home() {
             interviewType: currentSettings.interviewType,
             difficultyLevel: currentSettings.difficultyLevel,
           },
+          communicationAnalysis: communicationResult ?? undefined, // Use result even if it's duration-only
+          recordingDurationSeconds: voiceRecordingDuration,
+        };
+        setProgress(prevProgress => [...prevProgress, newAttempt]);
+      } else if (!evaluationResult && answer.trim() === "" && voiceRecordingDuration > 0) {
+        // Case: Transcription failed/empty, but we have duration. Save attempt with no evaluation.
+        const newAttempt: StoredAttempt = {
+          id: uuidv4(),
+          timestamp: Date.now(),
+          question: generatedQuestions[currentQuestionIndex],
+          userAnswer: "", // Empty answer
+          evaluation: { score: 0, strengths: "N/A - No answer text.", weaknesses: "N/A - No answer text.", modelAnswer: "N/A - No answer text." }, // Placeholder evaluation
+          settings: {
+            jobRole: currentSettings.jobRole,
+            interviewType: currentSettings.interviewType,
+            difficultyLevel: currentSettings.difficultyLevel,
+          },
           communicationAnalysis: communicationResult ?? undefined,
           recordingDurationSeconds: voiceRecordingDuration,
         };
         setProgress(prevProgress => [...prevProgress, newAttempt]);
+        toast({ title: "Attempt Saved", description: "Attempt saved, but answer text was empty. Evaluation is limited." });
       }
     }
   };
@@ -270,7 +309,7 @@ export default function Home() {
           (<InterviewSetupForm 
             onSubmit={handleStartInterview} 
             isLoading={isLoadingSetup}
-            onDailyPractice={() => {}} // Kept for type consistency, but button removed
+            onDailyPractice={() => {}} 
           />)
          : 
           (<Card className="w-full max-w-md mx-auto text-center shadow-xl">
@@ -325,5 +364,3 @@ export default function Home() {
     </div>
   );
 }
-
-    
