@@ -22,9 +22,10 @@ export interface StoredAttempt {
   id: string;
   timestamp: number;
   question: string;
-  userAnswer: string;
+  userAnswer: string; // Transcribed text
   evaluation: EvaluateAnswerOutput;
   settings: Pick<InterviewSettings, 'jobRole' | 'interviewType' | 'difficultyLevel'>;
   communicationAnalysis?: AnalyzeCommunicationOutput;
-  recordingDurationSeconds?: number; // Duration of voice input
+  recordingDurationSeconds?: number; // Duration of video/audio input
+  recordedVideoUrl?: string; // URL for the recorded video playback
 }

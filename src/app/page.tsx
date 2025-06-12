@@ -14,7 +14,7 @@ import { provideModelAnswer } from '@/ai/flows/provide-model-answer';
 import type { ProvideModelAnswerInput } from '@/ai/flows/provide-model-answer';
 import { analyzeCommunication } from '@/ai/flows/analyze-communication-flow';
 import type { AnalyzeCommunicationInput, AnalyzeCommunicationOutput } from '@/ai/flows/analyze-communication-flow';
-import type { InterviewSettings, StoredAttempt, QuestionCount } from '@/lib/types';
+import type { InterviewSettings, StoredAttempt } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
 import useLocalStorage from '@/hooks/use-local-storage';
 import { v4 as uuidv4 } from 'uuid'; 
@@ -81,8 +81,8 @@ export default function Home() {
     setIsLoadingSetup(false);
   };
 
-  // voiceRecordingDuration is now from MediaRecorder (client-side timer)
-  const handleSubmitAnswer = async (answer: string, voiceRecordingDuration: number) => {
+  // Method to handle answer submission, now includes optional recordedVideoUrl
+  const handleSubmitAnswer = async (answer: string, recordingDuration: number, recordedVideoUrl?: string | null) => {
     if (!currentSettings || generatedQuestions.length === 0) return;
     setIsLoadingEvaluation(true);
     setCurrentEvaluation(null); 
@@ -92,13 +92,14 @@ export default function Home() {
     let communicationResult: AnalyzeCommunicationOutput | null = null;
 
     console.log("--- handleSubmitAnswer in page.tsx ---");
-    console.log("Received answer (from Whisper):", `"${answer}"`);
-    console.log("Received voiceRecordingDuration (from client timer):", voiceRecordingDuration);
+    console.log("Received answer (from Whisper/Hidden Textarea):", `"${answer}"`);
+    console.log("Received recordingDuration (from video/audio recording):", recordingDuration);
+    console.log("Received recordedVideoUrl:", recordedVideoUrl);
     console.log("Current Question:", generatedQuestions[currentQuestionIndex]);
     console.log("Current Settings:", currentSettings);
-
+    
     try {
-      // Evaluate main answer
+      // Evaluate main answer content (text)
       const evalInput: EvaluateAnswerInput = {
         question: generatedQuestions[currentQuestionIndex],
         answer: answer, // This `answer` comes from server-side transcription via Whisper
@@ -110,12 +111,13 @@ export default function Home() {
       setCurrentEvaluation(evaluationResult);
       toast({ title: "Answer Evaluated!", description: `Score: ${evaluationResult.score}/100` });
 
-      // Analyze communication if answer text is available and duration is positive
-      if (answer.trim() && voiceRecordingDuration > 0) {
+      // Analyze communication aspects
+      // This flow uses answerText (transcribed) and recordingDurationSeconds
+      if (answer.trim() || recordingDuration > 0) { // Proceed if there's text OR duration
         try {
           const commsInput: AnalyzeCommunicationInput = {
-            answerText: answer,
-            recordingDurationSeconds: voiceRecordingDuration,
+            answerText: answer, // Use transcribed text, even if empty
+            recordingDurationSeconds: recordingDuration,
             jobRole: currentSettings.jobRole,
             difficulty: currentSettings.difficultyLevel,
           };
@@ -127,71 +129,38 @@ export default function Home() {
            console.error("Error analyzing communication:", commsError);
            toast({ title: "Comms Analysis Error", description: "Failed to analyze communication aspects.", variant: "destructive" });
         }
-      } else if (!answer.trim() && voiceRecordingDuration > 0){
-        // This case means recording happened, but transcription was empty or failed silently client-side (should be caught there)
-        toast({ title: "Note", description: "Answer text is empty, though recording had duration. Core evaluation and text-based communication analysis will be limited."});
-         // Still attempt communication analysis with duration if available
-        try {
-          const commsInput: AnalyzeCommunicationInput = {
-            answerText: "", // explicitly empty
-            recordingDurationSeconds: voiceRecordingDuration,
-            jobRole: currentSettings.jobRole,
-            difficulty: currentSettings.difficultyLevel,
-          };
-          communicationResult = await analyzeCommunication(commsInput);
-          setCurrentCommunicationAnalysis(communicationResult);
-          toast({ title: "Communication Analysis (Duration Only)"});
-        } catch (commsError) {
-           console.error("Error analyzing communication (duration only):", commsError);
-        }
-
-      } else if (answer.trim() && voiceRecordingDuration === 0) {
-        // User somehow submitted text without triggering a recording duration (e.g. future manual text input)
-         toast({ title: "Note", description: "Communication pace analysis skipped as recording duration was zero."});
-      } else if (!answer.trim() && voiceRecordingDuration === 0) {
-        toast({ title: "Note", description: "Answer text is empty and no recording duration. Evaluation and communication analysis will be limited."});
+      } else {
+        toast({ title: "Note", description: "No answer text and no recording duration. Communication analysis skipped."});
       }
-
 
     } catch (error) {
       console.error("Error during answer submission process:", error);
       toast({ title: "Error", description: "Failed to process answer fully.", variant: "destructive" });
     } finally {
       setIsLoadingEvaluation(false);
-      if (evaluationResult) { 
+      // Save attempt regardless of full success, if core settings are present
+      if (currentSettings) {
         const newAttempt: StoredAttempt = {
           id: uuidv4(),
           timestamp: Date.now(),
           question: generatedQuestions[currentQuestionIndex],
           userAnswer: answer,
-          evaluation: evaluationResult,
-          settings: {
-            jobRole: currentSettings.jobRole,
-            interviewType: currentSettings.interviewType,
-            difficultyLevel: currentSettings.difficultyLevel,
-          },
-          communicationAnalysis: communicationResult ?? undefined, // Use result even if it's duration-only
-          recordingDurationSeconds: voiceRecordingDuration,
-        };
-        setProgress(prevProgress => [...prevProgress, newAttempt]);
-      } else if (!evaluationResult && answer.trim() === "" && voiceRecordingDuration > 0) {
-        // Case: Transcription failed/empty, but we have duration. Save attempt with no evaluation.
-        const newAttempt: StoredAttempt = {
-          id: uuidv4(),
-          timestamp: Date.now(),
-          question: generatedQuestions[currentQuestionIndex],
-          userAnswer: "", // Empty answer
-          evaluation: { score: 0, strengths: "N/A - No answer text.", weaknesses: "N/A - No answer text.", modelAnswer: "N/A - No answer text." }, // Placeholder evaluation
+          evaluation: evaluationResult || { score: 0, strengths: "N/A - Evaluation failed or no text.", weaknesses: "N/A - Evaluation failed or no text.", modelAnswer: "N/A - Evaluation failed or no text." },
           settings: {
             jobRole: currentSettings.jobRole,
             interviewType: currentSettings.interviewType,
             difficultyLevel: currentSettings.difficultyLevel,
           },
           communicationAnalysis: communicationResult ?? undefined,
-          recordingDurationSeconds: voiceRecordingDuration,
+          recordingDurationSeconds: recordingDuration,
+          recordedVideoUrl: recordedVideoUrl ?? undefined,
         };
         setProgress(prevProgress => [...prevProgress, newAttempt]);
-        toast({ title: "Attempt Saved", description: "Attempt saved, but answer text was empty. Evaluation is limited." });
+        if (!evaluationResult && (answer.trim() === "" && recordingDuration > 0)) {
+            toast({ title: "Attempt Saved (Partial)", description: "Attempt saved. Evaluation limited due to missing text transcript." });
+        } else if (!evaluationResult) {
+            toast({ title: "Attempt Saved (Evaluation Error)", description: "Attempt saved, but there was an issue with AI evaluation." });
+        }
       }
     }
   };
@@ -292,11 +261,12 @@ export default function Home() {
 
   const handleFinishInterview = () => {
     setIsInterviewActive(false);
-    setGeneratedQuestions([]);
-    setCurrentQuestionIndex(0);
-    setCurrentEvaluation(null);
-    setCurrentModelAnswer(null);
-    setCurrentCommunicationAnalysis(null);
+    // Don't reset currentSettings here, so the summary screen can show.
+    // setGeneratedQuestions([]); // Keep questions for potential review on summary? Or clear. Let's clear.
+    // setCurrentQuestionIndex(0);
+    // setCurrentEvaluation(null);
+    // setCurrentModelAnswer(null);
+    // setCurrentCommunicationAnalysis(null);
     toast({ title: "Interview Finished!", description: "Great job on completing your practice session!" });
   };
   
@@ -305,7 +275,8 @@ export default function Home() {
   return (
     <div className="container mx-auto px-4 py-8 min-h-[calc(100vh-var(--header-height,80px))]">
       {!isInterviewActive ? (
-        currentSettings === null || generatedQuestions.length === 0 ? 
+        // If interview is not active, show setup or completion card
+        (currentSettings === null || generatedQuestions.length === 0 || currentQuestionIndex === 0 && !currentEvaluation) ? 
           (<InterviewSetupForm 
             onSubmit={handleStartInterview} 
             isLoading={isLoadingSetup}
@@ -317,12 +288,12 @@ export default function Home() {
               <Award size={64} className="mx-auto text-accent mb-4" />
               <CardTitle className="text-3xl font-bold">Interview Complete!</CardTitle>
               <CardDescription className="text-lg text-muted-foreground">
-                Well done! You've completed your practice session.
+                Well done! You've completed your practice session. Review your progress below.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <Button onClick={() => {
-                  setCurrentSettings(null); 
+                  setCurrentSettings(null); // This will take user back to setup form
                   setGeneratedQuestions([]);
                   setCurrentQuestionIndex(0);
                   setCurrentEvaluation(null);
