@@ -5,7 +5,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
-import { Loader2, Send, SkipForward, RefreshCcw, Lightbulb, CheckCircle, Video, VideoOff, AlertCircle, Play, Eye, EyeOff } from 'lucide-react';
+import { Loader2, Send, SkipForward, RefreshCcw, Lightbulb, CheckCircle, Video, VideoOff, AlertCircle, Play, Eye, EyeOff, Award, BarChartHorizontal, Target } from 'lucide-react';
 import type { EvaluateAnswerOutput } from '@/ai/flows/evaluate-answer';
 import type { AnalyzeCommunicationOutput } from '@/ai/flows/analyze-communication-flow';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -52,21 +52,21 @@ export default function InterviewArea({
   modelAnswerText,
   isLastQuestion,
 }: InterviewAreaProps) {
-  const [answer, setAnswer] = useState(''); // Transcribed text
+  const [answer, setAnswer] = useState(''); // Transcribed text from Whisper
   const [showEvaluation, setShowEvaluation] = useState(false);
   const [showModelAnswer, setShowModelAnswer] = useState(false);
   
-  const [isRecording, setIsRecording] = useState(false); // True if video/audio recording is active
-  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [isRecording, setIsRecording] = useState(false); // True if MediaRecorder is active
+  const [isTranscribing, setIsTranscribing] = useState(false); // True if waiting for Whisper API
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const mediaChunksRef = useRef<Blob[]>([]); // For combined video/audio
+  const mediaChunksRef = useRef<Blob[]>([]);
   
   const [recordingStartTime, setRecordingStartTime] = useState<number | null>(null);
   const [recordingDurationSeconds, setRecordingDurationSeconds] = useState<number>(0);
 
   const [recordedVideoUrl, setRecordedVideoUrl] = useState<string | null>(null);
   const videoPreviewRef = useRef<HTMLVideoElement>(null);
-  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
+  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null); // null: pending, true: granted, false: denied
   const videoStreamRef = useRef<MediaStream | null>(null);
   const [showVideoPreview, setShowVideoPreview] = useState(true);
 
@@ -83,6 +83,12 @@ export default function InterviewArea({
         if (videoPreviewRef.current) {
           console.log("Attaching video stream to preview element.");
           videoPreviewRef.current.srcObject = stream;
+          // Explicitly play after metadata is loaded for robustness
+          videoPreviewRef.current.onloadedmetadata = () => {
+            videoPreviewRef.current?.play().catch(error => {
+              console.warn("Video preview play() failed (often benign due to autoplay policies or race conditions):", error);
+            });
+          };
         }
         setHasCameraPermission(true);
         console.log("User media stream obtained.");
@@ -101,12 +107,11 @@ export default function InterviewArea({
 
     return () => {
       if (videoStreamRef.current) {
-        console.log("Stopping all tracks on component unmount or question change.");
+        console.log("Stopping all tracks on component unmount.");
         videoStreamRef.current.getTracks().forEach(track => track.stop());
       }
-      if (recordedVideoUrl) {
+      if (recordedVideoUrl) { // Cleanup existing recorded video URL on unmount
         URL.revokeObjectURL(recordedVideoUrl);
-        setRecordedVideoUrl(null);
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -118,13 +123,14 @@ export default function InterviewArea({
     setAnswer('');
     setShowEvaluation(false);
     setShowModelAnswer(false);
-    setRecordedVideoUrl(prevUrl => {
+    
+    setRecordedVideoUrl(prevUrl => { // Clean up previous recorded video URL
       if (prevUrl) URL.revokeObjectURL(prevUrl);
       return null;
     });
 
     if (isRecording && mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-      mediaRecorderRef.current.stop(); // This will trigger onstop
+      mediaRecorderRef.current.stop(); 
     }
     setIsRecording(false);
     setIsTranscribing(false);
@@ -145,7 +151,7 @@ export default function InterviewArea({
       toast({ title: "Permissions Required", description: "Camera and microphone access is needed to record.", variant: "destructive" });
       return;
     }
-    if (!videoStreamRef.current) {
+    if (!videoStreamRef.current) { // Should be set if hasCameraPermission is true
        toast({ title: "Error", description: "Camera stream not available. Try refreshing.", variant: "destructive" });
       return;
     }
@@ -167,7 +173,15 @@ export default function InterviewArea({
       }
 
       try {
-        mediaRecorderRef.current = new MediaRecorder(videoStreamRef.current, { mimeType: 'video/webm; codecs=vp9,opus' }); // Specify codecs for broader compatibility
+        // Attempt to use a common MIME type; browser will fall back if not supported.
+        // Common options: 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/mp4'
+        // For widest compatibility, 'video/webm' is a good default if specific codecs aren't required.
+        const mimeType = MediaRecorder.isTypeSupported('video/webm; codecs=vp9,opus') 
+          ? 'video/webm; codecs=vp9,opus' 
+          : (MediaRecorder.isTypeSupported('video/webm; codecs=vp8,opus') ? 'video/webm; codecs=vp8,opus' : 'video/webm');
+        console.log("Using MIME type for MediaRecorder:", mimeType);
+
+        mediaRecorderRef.current = new MediaRecorder(videoStreamRef.current, { mimeType });
 
         mediaRecorderRef.current.ondataavailable = (event) => {
           if (event.data.size > 0) {
@@ -198,25 +212,28 @@ export default function InterviewArea({
             return;
           }
 
-          const mediaBlob = new Blob(mediaChunksRef.current, { type: 'video/webm' });
-          setRecordedVideoUrl(URL.createObjectURL(mediaBlob)); // For local playback
+          const mediaBlob = new Blob(mediaChunksRef.current, { type: mimeType });
+          setRecordedVideoUrl(URL.createObjectURL(mediaBlob));
 
           const formData = new FormData();
-          formData.append('audio', mediaBlob, 'recording.webm'); // Send the whole mediaBlob
+          // It's good practice to give a filename, even if the server doesn't always use it.
+          formData.append('audio', mediaBlob, `recording.${mimeType.split('/')[1].split(';')[0]}`); 
 
           try {
+            console.log('Sending audio to /api/transcribe');
             const response = await fetch('/api/transcribe', {
               method: 'POST',
               body: formData,
             });
 
             if (!response.ok) {
-              const errorData = await response.json();
+              const errorData = await response.json().catch(() => ({ error: "Unknown server error" })); // Fallback if JSON parsing fails
+              console.error("Transcription API server error:", response.status, errorData);
               throw new Error(errorData.error || `Server error: ${response.status}`);
             }
 
             const result = await response.json();
-            setAnswer(result.transcript); // This is the transcribed text
+            setAnswer(result.transcript);
             toast({ title: "Transcription Complete!", description: "Your answer is ready to submit."});
           } catch (error) {
             console.error("Transcription API error:", error);
@@ -225,6 +242,7 @@ export default function InterviewArea({
             setAnswer(''); 
           } finally {
             setIsTranscribing(false);
+            mediaChunksRef.current = []; // Clear chunks after processing
           }
         };
         mediaRecorderRef.current.start();
@@ -243,12 +261,14 @@ export default function InterviewArea({
       toast({title: "Busy", description: `Please wait for ${busyReason} to finish.`, variant: "default"});
       return;
     }
-    if (!answer.trim() && !recordedVideoUrl) { // Allow submit if video was recorded, even if transcription failed.
-        toast({title: "No Answer Content", description: "Please record your answer or ensure transcription was successful.", variant: "default"});
+    // Allow submit if video was recorded, even if transcription failed (answer might be empty).
+    // The AI flows should handle empty answer strings gracefully.
+    if (!answer.trim() && !recordedVideoUrl) { 
+        toast({title: "No Answer Content", description: "Please record your answer. If transcription failed, you can still submit the video.", variant: "default"});
         return;
     }
-    if (!answer.trim() && recordedVideoUrl) {
-        toast({title: "Submitting Video", description: "Submitting video with no transcribed text. AI text analysis will be limited."});
+     if (!answer.trim() && recordedVideoUrl) {
+        toast({title: "Submitting Video", description: "Submitting video without transcribed text. AI text analysis will be limited."});
     }
     
     await onSubmitAnswer(answer, recordingDurationSeconds, recordedVideoUrl); 
@@ -284,10 +304,15 @@ export default function InterviewArea({
         <CardHeader>
           <div className="flex justify-between items-center mb-2">
             <CardTitle className="text-2xl font-semibold text-primary">Question {questionNumber} of {totalQuestions}</CardTitle>
-            <Button variant="outline" size="sm" onClick={() => setShowVideoPreview(p => !p)}>
-              {showVideoPreview ? <EyeOff size={16}/> : <Eye size={16}/>}
-              {showVideoPreview ? 'Hide Preview' : 'Show Preview'}
-            </Button>
+             <Tooltip>
+                <TooltipTrigger asChild>
+                    <Button variant="outline" size="sm" onClick={() => setShowVideoPreview(p => !p)} className="gap-1">
+                    {showVideoPreview ? <EyeOff size={16}/> : <Eye size={16}/>}
+                    {showVideoPreview ? 'Hide Preview' : 'Show Preview'}
+                    </Button>
+                </TooltipTrigger>
+                <TooltipContent><p>{showVideoPreview ? 'Hide live camera preview' : 'Show live camera preview'}</p></TooltipContent>
+            </Tooltip>
           </div>
           <Progress value={progressPercentage} className="w-full h-2" />
           {isLoadingNewQuestion ? (
@@ -306,7 +331,7 @@ export default function InterviewArea({
           )}
           {hasCameraPermission === false && (
              <Alert variant="destructive">
-              <AlertTitle>Camera Access Required</AlertTitle>
+              <AlertTitle>Device Access Required</AlertTitle>
               <AlertDescription>
                 Camera and microphone access is required to record video answers. Please enable permissions in your browser settings.
               </AlertDescription>
@@ -330,6 +355,7 @@ export default function InterviewArea({
               </div>
           )}
           
+          {/* Textarea is hidden, but its value (answer state) is used */}
           <div className={`min-h-[50px] p-3 rounded-md border bg-muted text-muted-foreground ${answer.trim() ? 'text-foreground' : ''} hidden`}
             aria-live="polite" 
           >
@@ -343,7 +369,7 @@ export default function InterviewArea({
           )}
           {(!isRecording && !isTranscribing && (answer.trim() || recordedVideoUrl) && hasCameraPermission) && (
              <div className="text-center text-green-600 py-4 flex items-center justify-center">
-              <CheckCircle size={20} className="mr-2"/> Answer recorded. Ready to submit.
+              <CheckCircle size={20} className="mr-2"/> Answer recorded. {answer.trim() ? "Transcription complete." : "Video ready."} Ready to submit.
             </div>
           )}
 
@@ -354,7 +380,7 @@ export default function InterviewArea({
             <div className="flex gap-2 w-full sm:w-auto">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button onClick={onRegenerateQuestion} variant="outline" disabled={recordButtonDisabled || isRecording}>
+                  <Button onClick={onRegenerateQuestion} variant="outline" disabled={recordButtonDisabled || isRecording} className="gap-1">
                     <RefreshCcw size={18} /> Regenerate
                   </Button>
                 </TooltipTrigger>
@@ -362,7 +388,7 @@ export default function InterviewArea({
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button onClick={onSkipQuestion} variant="outline" disabled={recordButtonDisabled || isRecording}>
+                  <Button onClick={onSkipQuestion} variant="outline" disabled={recordButtonDisabled || isRecording} className="gap-1">
                     <SkipForward size={18} /> Skip
                   </Button>
                 </TooltipTrigger>
@@ -378,10 +404,10 @@ export default function InterviewArea({
                     size="lg" 
                     disabled={recordButtonDisabled}
                     aria-label={isRecording ? "Stop video recording" : "Start video recording answer"}
-                    className={`${isRecording ? "bg-red-500 hover:bg-red-600 text-white" : ""} py-3 px-6 rounded-full`}
+                    className={`${isRecording ? "bg-red-500 hover:bg-red-600 text-white" : ""} py-3 px-6 rounded-full gap-2`}
                   >
                     {isRecording ? <VideoOff size={24} /> : <Video size={24} />}
-                    <span className="ml-2 text-base">{isRecording ? "Stop Recording" : (isTranscribing ? "Processing..." : "Record Video")}</span>
+                    <span className="ml-0 text-base">{isRecording ? "Stop Recording" : (isTranscribing ? "Processing..." : "Record Video")}</span>
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -389,7 +415,7 @@ export default function InterviewArea({
                 </TooltipContent>
               </Tooltip>
               
-              <Button onClick={handleSubmit} disabled={submitButtonDisabled} className="flex-grow sm:flex-grow-0" size="lg">
+              <Button onClick={handleSubmit} disabled={submitButtonDisabled} className="flex-grow sm:flex-grow-0 gap-1" size="lg">
                 {isLoadingEvaluation ? (
                   <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                 ) : (
@@ -423,7 +449,7 @@ export default function InterviewArea({
             {recordedVideoUrl && (
               <div className="mb-4">
                 <h3 className="text-lg font-semibold mb-2">Your Recorded Answer:</h3>
-                <video src={recordedVideoUrl} controls className="w-full rounded-md shadow-md aspect-video"></video>
+                <video src={recordedVideoUrl} controls className="w-full rounded-md shadow-md aspect-video bg-black"></video>
               </div>
             )}
             <div>
@@ -437,7 +463,7 @@ export default function InterviewArea({
 
             {communicationAnalysisResult && (
               <div className="space-y-3 pt-3 border-t mt-4">
-                <h3 className="text-xl font-semibold flex items-center text-primary"><BarChartHorizontal size={22} className="mr-2" />Communication Analysis</h3>
+                <h3 className="text-xl font-semibold flex items-center text-primary gap-1"><BarChartHorizontal size={22} className="mr-1" />Communication Analysis</h3>
                 <div className="space-y-1">
                   <p><strong className="font-medium">Clarity:</strong> {communicationAnalysisResult.clarityFeedback}</p>
                   <p><strong className="font-medium">Confidence Cues:</strong> {communicationAnalysisResult.confidenceCues}</p>
@@ -462,7 +488,7 @@ export default function InterviewArea({
             {!modelAnswerText && (
                <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button onClick={handleGetModel} variant="outline" className="w-full sm:w-auto border-accent text-accent-foreground hover:bg-accent/10 mt-2" disabled={isLoadingModelAnswer || isRecording || isTranscribing}>
+                  <Button onClick={handleGetModel} variant="outline" className="w-full sm:w-auto border-accent text-accent-foreground hover:bg-accent/10 mt-2 gap-1" disabled={isLoadingModelAnswer || isRecording || isTranscribing}>
                     {isLoadingModelAnswer ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
@@ -483,8 +509,7 @@ export default function InterviewArea({
       {showModelAnswer && modelAnswerText && !isLoadingEvaluation && (
          <Card className="shadow-xl animate-in fade-in duration-500 mt-4">
            <CardHeader className="flex flex-row justify-between items-center">
-             <CardTitle className="text-xl font-semibold flex items-center text-indigo-600"><Target size={20} className="mr-2" />Model Answer</CardTitle>
-              {/* SpeechSynthesis for model answer can be added back if desired */}
+             <CardTitle className="text-xl font-semibold flex items-center text-indigo-600 gap-1"><Target size={20} className="mr-1" />Model Answer</CardTitle>
            </CardHeader>
            <CardContent>
              <p className="text-muted-foreground bg-indigo-50 p-3 rounded-md border border-indigo-200">{modelAnswerText}</p>
@@ -495,11 +520,11 @@ export default function InterviewArea({
       {showEvaluation && !isLoadingEvaluation && (
         <div className="mt-6 flex justify-end">
           {isLastQuestion ? (
-            <Button onClick={onFinishInterview} size="lg" className="bg-green-500 hover:bg-green-600">
+            <Button onClick={onFinishInterview} size="lg" className="bg-green-500 hover:bg-green-600 gap-1">
               Finish Interview <Award size={20} className="ml-2"/>
             </Button>
           ) : (
-            <Button onClick={onNextQuestion} size="lg">
+            <Button onClick={onNextQuestion} size="lg" className="gap-1">
               Next Question <SkipForward size={20} className="ml-2"/>
             </Button>
           )}
@@ -509,3 +534,4 @@ export default function InterviewArea({
     </TooltipProvider>
   );
 }
+
