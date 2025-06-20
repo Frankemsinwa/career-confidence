@@ -52,12 +52,12 @@ export default function InterviewArea({
   modelAnswerText,
   isLastQuestion,
 }: InterviewAreaProps) {
-  const [answer, setAnswer] = useState(''); // Transcribed text from Whisper
+  const [answer, setAnswer] = useState(''); 
   const [showEvaluation, setShowEvaluation] = useState(false);
   const [showModelAnswer, setShowModelAnswer] = useState(false);
   
-  const [isRecording, setIsRecording] = useState(false); // True if MediaRecorder is active
-  const [isTranscribing, setIsTranscribing] = useState(false); // True if waiting for Whisper API
+  const [isRecording, setIsRecording] = useState(false); 
+  const [isTranscribing, setIsTranscribing] = useState(false); 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaChunksRef = useRef<Blob[]>([]);
   
@@ -66,14 +66,13 @@ export default function InterviewArea({
 
   const [recordedVideoUrl, setRecordedVideoUrl] = useState<string | null>(null);
   const videoPreviewRef = useRef<HTMLVideoElement>(null);
-  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null); // null: pending, true: granted, false: denied
+  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null); 
   const videoStreamRef = useRef<MediaStream | null>(null);
   const [showVideoPreview, setShowVideoPreview] = useState(true);
 
 
   const { toast } = useToast();
 
-  // Permission and stream setup
   useEffect(() => {
     const getPermissionsAndStream = async () => {
       try {
@@ -81,14 +80,40 @@ export default function InterviewArea({
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         videoStreamRef.current = stream;
         if (videoPreviewRef.current) {
-          console.log("Attaching video stream to preview element.");
+          console.log("Attaching video stream to preview element.", videoPreviewRef.current);
           videoPreviewRef.current.srcObject = stream;
-          // Explicitly play after metadata is loaded for robustness
+
           videoPreviewRef.current.onloadedmetadata = () => {
-            videoPreviewRef.current?.play().catch(error => {
-              console.warn("Video preview play() failed (often benign due to autoplay policies or race conditions):", error);
-            });
+            console.log("Video metadata loaded. ReadyState:", videoPreviewRef.current?.readyState,"Attempting to play...");
+            videoPreviewRef.current?.play()
+              .then(() => {
+                console.log("Video preview play() promise resolved.");
+              })
+              .catch(error => {
+                console.warn("Video preview play() promise rejected:", error);
+              });
           };
+
+          videoPreviewRef.current.onplaying = () => {
+            console.log("Video preview is playing.");
+          };
+          
+          videoPreviewRef.current.onstalled = () => {
+            console.warn("Video preview stalled.");
+          };
+
+          videoPreviewRef.current.onsuspend = () => {
+            console.warn("Video preview suspended.");
+          };
+
+          videoPreviewRef.current.onerror = (e) => {
+            console.error("Video preview element error event:", e);
+            if (videoPreviewRef.current?.error) {
+              console.error("Video error object:", videoPreviewRef.current.error);
+            }
+          };
+          console.log("Event listeners (onloadedmetadata, onplaying, onerror, etc.) attached to video preview.");
+
         }
         setHasCameraPermission(true);
         console.log("User media stream obtained.");
@@ -110,7 +135,7 @@ export default function InterviewArea({
         console.log("Stopping all tracks on component unmount.");
         videoStreamRef.current.getTracks().forEach(track => track.stop());
       }
-      if (recordedVideoUrl) { // Cleanup existing recorded video URL on unmount
+      if (recordedVideoUrl) { 
         URL.revokeObjectURL(recordedVideoUrl);
       }
     };
@@ -118,13 +143,12 @@ export default function InterviewArea({
   }, []);
 
 
-  // Reset for new question
   useEffect(() => {
     setAnswer('');
     setShowEvaluation(false);
     setShowModelAnswer(false);
     
-    setRecordedVideoUrl(prevUrl => { // Clean up previous recorded video URL
+    setRecordedVideoUrl(prevUrl => { 
       if (prevUrl) URL.revokeObjectURL(prevUrl);
       return null;
     });
@@ -151,37 +175,44 @@ export default function InterviewArea({
       toast({ title: "Permissions Required", description: "Camera and microphone access is needed to record.", variant: "destructive" });
       return;
     }
-    if (!videoStreamRef.current) { // Should be set if hasCameraPermission is true
+    if (!videoStreamRef.current) { 
        toast({ title: "Error", description: "Camera stream not available. Try refreshing.", variant: "destructive" });
       return;
     }
 
     if (isRecording) {
-      // Stop recording
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-        mediaRecorderRef.current.stop(); // onstop will handle transcription and video URL
+        mediaRecorderRef.current.stop(); 
       }
       setIsRecording(false); 
     } else {
-      // Start recording
       setAnswer(''); 
       setRecordingDurationSeconds(0);
       mediaChunksRef.current = [];
-      if (recordedVideoUrl) { // Clean up previous recording URL
+      if (recordedVideoUrl) { 
         URL.revokeObjectURL(recordedVideoUrl);
         setRecordedVideoUrl(null);
       }
 
       try {
-        // Attempt to use a common MIME type; browser will fall back if not supported.
-        // Common options: 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/mp4'
-        // For widest compatibility, 'video/webm' is a good default if specific codecs aren't required.
-        const mimeType = MediaRecorder.isTypeSupported('video/webm; codecs=vp9,opus') 
-          ? 'video/webm; codecs=vp9,opus' 
-          : (MediaRecorder.isTypeSupported('video/webm; codecs=vp8,opus') ? 'video/webm; codecs=vp8,opus' : 'video/webm');
-        console.log("Using MIME type for MediaRecorder:", mimeType);
-
-        mediaRecorderRef.current = new MediaRecorder(videoStreamRef.current, { mimeType });
+        const mimeTypeOptions = [
+          'video/webm;codecs=vp9,opus',
+          'video/webm;codecs=vp8,opus',
+          'video/webm;codecs=h264,opus',
+          'video/mp4;codecs=h264,aac', // Broader compatibility, but webm is often preferred for web
+          'video/webm',
+        ];
+        
+        let chosenMimeType = 'video/webm'; // Default fallback
+        for (const type of mimeTypeOptions) {
+          if (MediaRecorder.isTypeSupported(type)) {
+            chosenMimeType = type;
+            break;
+          }
+        }
+        console.log("Using MIME type for MediaRecorder:", chosenMimeType);
+        
+        mediaRecorderRef.current = new MediaRecorder(videoStreamRef.current, { mimeType: chosenMimeType });
 
         mediaRecorderRef.current.ondataavailable = (event) => {
           if (event.data.size > 0) {
@@ -212,12 +243,12 @@ export default function InterviewArea({
             return;
           }
 
-          const mediaBlob = new Blob(mediaChunksRef.current, { type: mimeType });
+          const mediaBlob = new Blob(mediaChunksRef.current, { type: chosenMimeType });
           setRecordedVideoUrl(URL.createObjectURL(mediaBlob));
 
           const formData = new FormData();
-          // It's good practice to give a filename, even if the server doesn't always use it.
-          formData.append('audio', mediaBlob, `recording.${mimeType.split('/')[1].split(';')[0]}`); 
+          const fileExtension = chosenMimeType.split('/')[1].split(';')[0]; // e.g. webm, mp4
+          formData.append('audio', mediaBlob, `recording.${fileExtension}`); 
 
           try {
             console.log('Sending audio to /api/transcribe');
@@ -227,7 +258,7 @@ export default function InterviewArea({
             });
 
             if (!response.ok) {
-              const errorData = await response.json().catch(() => ({ error: "Unknown server error" })); // Fallback if JSON parsing fails
+              const errorData = await response.json().catch(() => ({ error: "Unknown server error" })); 
               console.error("Transcription API server error:", response.status, errorData);
               throw new Error(errorData.error || `Server error: ${response.status}`);
             }
@@ -242,7 +273,7 @@ export default function InterviewArea({
             setAnswer(''); 
           } finally {
             setIsTranscribing(false);
-            mediaChunksRef.current = []; // Clear chunks after processing
+            mediaChunksRef.current = []; 
           }
         };
         mediaRecorderRef.current.start();
@@ -261,8 +292,7 @@ export default function InterviewArea({
       toast({title: "Busy", description: `Please wait for ${busyReason} to finish.`, variant: "default"});
       return;
     }
-    // Allow submit if video was recorded, even if transcription failed (answer might be empty).
-    // The AI flows should handle empty answer strings gracefully.
+    
     if (!answer.trim() && !recordedVideoUrl) { 
         toast({title: "No Answer Content", description: "Please record your answer. If transcription failed, you can still submit the video.", variant: "default"});
         return;
@@ -355,7 +385,6 @@ export default function InterviewArea({
               </div>
           )}
           
-          {/* Textarea is hidden, but its value (answer state) is used */}
           <div className={`min-h-[50px] p-3 rounded-md border bg-muted text-muted-foreground ${answer.trim() ? 'text-foreground' : ''} hidden`}
             aria-live="polite" 
           >
