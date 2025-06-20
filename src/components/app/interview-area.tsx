@@ -70,53 +70,21 @@ export default function InterviewArea({
   const videoStreamRef = useRef<MediaStream | null>(null);
   const [showVideoPreview, setShowVideoPreview] = useState(true);
 
-
   const { toast } = useToast();
 
+  // Effect to get camera/mic permissions
   useEffect(() => {
-    const getPermissionsAndStream = async () => {
+    const getPermissions = async () => {
+      if (videoStreamRef.current) {
+        setHasCameraPermission(true);
+        return;
+      }
       try {
         console.log("Attempting to get user media (video & audio)...");
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         videoStreamRef.current = stream;
-        if (videoPreviewRef.current) {
-          console.log("Attaching video stream to preview element.", videoPreviewRef.current);
-          videoPreviewRef.current.srcObject = stream;
-
-          videoPreviewRef.current.onloadedmetadata = () => {
-            console.log("Video metadata loaded. ReadyState:", videoPreviewRef.current?.readyState,"Attempting to play...");
-            videoPreviewRef.current?.play()
-              .then(() => {
-                console.log("Video preview play() promise resolved.");
-              })
-              .catch(error => {
-                console.warn("Video preview play() promise rejected:", error);
-              });
-          };
-
-          videoPreviewRef.current.onplaying = () => {
-            console.log("Video preview is playing.");
-          };
-          
-          videoPreviewRef.current.onstalled = () => {
-            console.warn("Video preview stalled.");
-          };
-
-          videoPreviewRef.current.onsuspend = () => {
-            console.warn("Video preview suspended.");
-          };
-
-          videoPreviewRef.current.onerror = (e) => {
-            console.error("Video preview element error event:", e);
-            if (videoPreviewRef.current?.error) {
-              console.error("Video error object:", videoPreviewRef.current.error);
-            }
-          };
-          console.log("Event listeners (onloadedmetadata, onplaying, onerror, etc.) attached to video preview.");
-
-        }
         setHasCameraPermission(true);
-        console.log("User media stream obtained.");
+        console.log("User media stream obtained and stored in ref.");
       } catch (error) {
         console.error('Error accessing camera/microphone:', error);
         setHasCameraPermission(false);
@@ -128,19 +96,85 @@ export default function InterviewArea({
         });
       }
     };
-    getPermissionsAndStream();
+    getPermissions();
 
     return () => {
       if (videoStreamRef.current) {
-        console.log("Stopping all tracks on component unmount.");
+        console.log("Cleaning up: Stopping all tracks on component unmount or stream re-acquisition.");
         videoStreamRef.current.getTracks().forEach(track => track.stop());
+        videoStreamRef.current = null;
       }
-      if (recordedVideoUrl) { 
+      if (recordedVideoUrl) {
         URL.revokeObjectURL(recordedVideoUrl);
       }
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Runs once on mount
+
+  // Effect to manage video preview element (attaching stream, playing, event listeners)
+  useEffect(() => {
+    const videoElement = videoPreviewRef.current;
+    const stream = videoStreamRef.current;
+
+    if (hasCameraPermission && showVideoPreview && videoElement && stream) {
+      console.log("Setting up video preview. Stream available, preview shown. Video Element:", videoElement);
+      if (videoElement.srcObject !== stream) {
+        videoElement.srcObject = stream;
+        console.log("Assigned stream to videoElement.srcObject");
+      }
+
+      const handleMetadataLoaded = () => {
+        console.log("Video metadata loaded. ReadyState:", videoElement?.readyState, "Attempting to play...");
+        videoElement.play()
+          .then(() => {
+            console.log("Video preview play() promise resolved.");
+          })
+          .catch(error => {
+            console.warn("Video preview play() promise rejected:", error);
+          });
+      };
+
+      const handlePlaying = () => console.log("Video preview is playing.");
+      const handleStalled = () => console.warn("Video preview stalled.");
+      const handleSuspended = () => console.warn("Video preview suspended.");
+      const handleError = (e: Event) => {
+        console.error("Video preview element error event:", e);
+        if (videoElement?.error) {
+          console.error("Video error object:", videoElement.error);
+        }
+      };
+      
+      videoElement.addEventListener('loadedmetadata', handleMetadataLoaded);
+      videoElement.addEventListener('playing', handlePlaying);
+      videoElement.addEventListener('stalled', handleStalled);
+      videoElement.addEventListener('suspend', handleSuspended);
+      videoElement.addEventListener('error', handleError);
+      
+      if (videoElement.readyState >= videoElement.HAVE_METADATA) {
+         console.log("Video already has metadata, attempting to play directly.");
+         videoElement.play().catch(e => console.warn("Direct play attempt failed:", e));
+      }
+
+
+      return () => {
+        console.log("Cleaning up video preview listeners for effect change.");
+        videoElement.removeEventListener('loadedmetadata', handleMetadataLoaded);
+        videoElement.removeEventListener('playing', handlePlaying);
+        videoElement.removeEventListener('stalled', handleStalled);
+        videoElement.removeEventListener('suspend', handleSuspended);
+        videoElement.removeEventListener('error', handleError);
+        if (videoElement.srcObject) { // Only pause if it has a srcObject
+          videoElement.pause();
+          // Don't nullify srcObject here, stream is managed by the other useEffect
+        }
+      };
+    } else if (!showVideoPreview && videoElement && videoElement.srcObject) {
+        console.log("Video preview hidden, pausing video.");
+        videoElement.pause();
+    } else {
+      console.log("Video preview setup skipped. Conditions: hasCameraPermission:", hasCameraPermission, "showVideoPreview:", showVideoPreview, "videoElement:", !!videoElement, "stream:", !!stream);
+    }
+  }, [hasCameraPermission, showVideoPreview]); 
 
 
   useEffect(() => {
@@ -184,7 +218,6 @@ export default function InterviewArea({
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
         mediaRecorderRef.current.stop(); 
       }
-      setIsRecording(false); 
     } else {
       setAnswer(''); 
       setRecordingDurationSeconds(0);
@@ -199,11 +232,11 @@ export default function InterviewArea({
           'video/webm;codecs=vp9,opus',
           'video/webm;codecs=vp8,opus',
           'video/webm;codecs=h264,opus',
-          'video/mp4;codecs=h264,aac', // Broader compatibility, but webm is often preferred for web
+          'video/mp4;codecs=h264,aac', 
           'video/webm',
         ];
         
-        let chosenMimeType = 'video/webm'; // Default fallback
+        let chosenMimeType = 'video/webm';
         for (const type of mimeTypeOptions) {
           if (MediaRecorder.isTypeSupported(type)) {
             chosenMimeType = type;
@@ -247,7 +280,7 @@ export default function InterviewArea({
           setRecordedVideoUrl(URL.createObjectURL(mediaBlob));
 
           const formData = new FormData();
-          const fileExtension = chosenMimeType.split('/')[1].split(';')[0]; // e.g. webm, mp4
+          const fileExtension = chosenMimeType.includes('mp4') ? 'mp4' : 'webm';
           formData.append('audio', mediaBlob, `recording.${fileExtension}`); 
 
           try {
@@ -368,8 +401,8 @@ export default function InterviewArea({
             </Alert>
           )}
 
-          {hasCameraPermission && showVideoPreview && (
-            <div className="mb-4 rounded-md overflow-hidden shadow-inner border bg-black">
+          {hasCameraPermission && ( 
+            <div className={`mb-4 rounded-md overflow-hidden shadow-inner border bg-black ${!showVideoPreview ? 'hidden' : ''}`}>
               <video ref={videoPreviewRef} className="w-full aspect-video" autoPlay muted playsInline />
             </div>
           )}
@@ -539,7 +572,7 @@ export default function InterviewArea({
          <Card className="shadow-xl animate-in fade-in duration-500 mt-4">
            <CardHeader className="flex flex-row justify-between items-center">
              <CardTitle className="text-xl font-semibold flex items-center text-indigo-600 gap-1"><Target size={20} className="mr-1" />Model Answer</CardTitle>
-           </CardHeader>
+           </Header>
            <CardContent>
              <p className="text-muted-foreground bg-indigo-50 p-3 rounded-md border border-indigo-200">{modelAnswerText}</p>
            </CardContent>
