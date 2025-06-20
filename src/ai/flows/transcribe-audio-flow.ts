@@ -21,7 +21,7 @@ const openrouter = new OpenAI({
   baseURL: "https://openrouter.ai/api/v1",
   apiKey: process.env.OPENROUTER_API_KEY,
   defaultHeaders: {
-    "HTTP-Referer": typeof window !== 'undefined' ? window.location.href : 'https://your-app-url.com', // Replace with your actual app URL
+    "HTTP-Referer": typeof window !== 'undefined' ? window.location.href : 'https://careerconfidence.pro', // Replace with your actual app URL
     "X-Title": "Career Confidence", // Replace with your actual app name
   },
 });
