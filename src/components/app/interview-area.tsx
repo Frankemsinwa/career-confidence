@@ -32,7 +32,7 @@ type InterviewAreaProps = {
   isLastQuestion: boolean;
 };
 
-const EXPECTED_ANSWER_TIME_SECONDS = 120; 
+const EXPECTED_ANSWER_TIME_SECONDS = 120;
 
 export default function InterviewArea({
   question,
@@ -52,21 +52,21 @@ export default function InterviewArea({
   modelAnswerText,
   isLastQuestion,
 }: InterviewAreaProps) {
-  const [answer, setAnswer] = useState(''); 
+  const [answer, setAnswer] = useState('');
   const [showEvaluation, setShowEvaluation] = useState(false);
   const [showModelAnswer, setShowModelAnswer] = useState(false);
-  
-  const [isRecording, setIsRecording] = useState(false); 
-  const [isTranscribing, setIsTranscribing] = useState(false); 
+
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaChunksRef = useRef<Blob[]>([]);
-  
+
   const [recordingStartTime, setRecordingStartTime] = useState<number | null>(null);
   const [recordingDurationSeconds, setRecordingDurationSeconds] = useState<number>(0);
 
   const [recordedVideoUrl, setRecordedVideoUrl] = useState<string | null>(null);
   const videoPreviewRef = useRef<HTMLVideoElement>(null);
-  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null); 
+  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
   const videoStreamRef = useRef<MediaStream | null>(null);
   const [showVideoPreview, setShowVideoPreview] = useState(true);
 
@@ -75,12 +75,13 @@ export default function InterviewArea({
   // Effect to get camera/mic permissions
   useEffect(() => {
     const getPermissions = async () => {
-      if (videoStreamRef.current) {
-        setHasCameraPermission(true);
+      if (videoStreamRef.current && videoStreamRef.current.active) { // Check if stream is already active
+        console.log("User media stream already active and stored.");
+        if (hasCameraPermission !== true) setHasCameraPermission(true); // Ensure state consistency
         return;
       }
+      console.log("Attempting to get user media (video & audio)...");
       try {
-        console.log("Attempting to get user media (video & audio)...");
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         videoStreamRef.current = stream;
         setHasCameraPermission(true);
@@ -98,28 +99,29 @@ export default function InterviewArea({
     };
     getPermissions();
 
+    // Cleanup function
     return () => {
       if (videoStreamRef.current) {
-        console.log("Cleaning up: Stopping all tracks on component unmount or stream re-acquisition.");
+        console.log("Cleaning up media stream: Stopping all tracks on component unmount or before re-acquiring.");
         videoStreamRef.current.getTracks().forEach(track => track.stop());
         videoStreamRef.current = null;
       }
       if (recordedVideoUrl) {
+        console.log("Cleaning up: Revoking recordedVideoUrl object URL.");
         URL.revokeObjectURL(recordedVideoUrl);
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Runs once on mount
+  }, []); // Runs once on mount to get permissions
 
   // Effect to manage video preview element (attaching stream, playing, event listeners)
   useEffect(() => {
     const videoElement = videoPreviewRef.current;
-    const stream = videoStreamRef.current;
 
-    if (hasCameraPermission && showVideoPreview && videoElement && stream) {
+    if (hasCameraPermission && showVideoPreview && videoElement && videoStreamRef.current) {
       console.log("Setting up video preview. Stream available, preview shown. Video Element:", videoElement);
-      if (videoElement.srcObject !== stream) {
-        videoElement.srcObject = stream;
+      if (videoElement.srcObject !== videoStreamRef.current) {
+        videoElement.srcObject = videoStreamRef.current;
         console.log("Assigned stream to videoElement.srcObject");
       }
 
@@ -143,13 +145,14 @@ export default function InterviewArea({
           console.error("Video error object:", videoElement.error);
         }
       };
-      
+
       videoElement.addEventListener('loadedmetadata', handleMetadataLoaded);
       videoElement.addEventListener('playing', handlePlaying);
       videoElement.addEventListener('stalled', handleStalled);
       videoElement.addEventListener('suspend', handleSuspended);
       videoElement.addEventListener('error', handleError);
-      
+
+      // If metadata is already loaded (e.g., on re-render when stream is already set), try playing
       if (videoElement.readyState >= videoElement.HAVE_METADATA) {
          console.log("Video already has metadata, attempting to play directly.");
          videoElement.play().catch(e => console.warn("Direct play attempt failed:", e));
@@ -163,41 +166,52 @@ export default function InterviewArea({
         videoElement.removeEventListener('stalled', handleStalled);
         videoElement.removeEventListener('suspend', handleSuspended);
         videoElement.removeEventListener('error', handleError);
-        if (videoElement.srcObject) { // Only pause if it has a srcObject
+        // Only pause if it has a srcObject and we are not just hiding the preview
+        if (videoElement.srcObject) {
           videoElement.pause();
-          // Don't nullify srcObject here, stream is managed by the other useEffect
+          // Avoid nullifying srcObject if the stream is still valid and might be reused
         }
       };
     } else if (!showVideoPreview && videoElement && videoElement.srcObject) {
         console.log("Video preview hidden, pausing video.");
         videoElement.pause();
     } else {
-      console.log("Video preview setup skipped. Conditions: hasCameraPermission:", hasCameraPermission, "showVideoPreview:", showVideoPreview, "videoElement:", !!videoElement, "stream:", !!stream);
+      console.log("Video preview setup skipped. Conditions: hasCameraPermission:", hasCameraPermission, "showVideoPreview:", showVideoPreview, "videoElement:", !!videoElement, "stream:", !!videoStreamRef.current);
     }
-  }, [hasCameraPermission, showVideoPreview]); 
+  }, [hasCameraPermission, showVideoPreview]); // Re-run when permission or visibility changes
 
 
   useEffect(() => {
+    // This effect resets state when the question changes
     setAnswer('');
     setShowEvaluation(false);
     setShowModelAnswer(false);
-    
-    setRecordedVideoUrl(prevUrl => { 
-      if (prevUrl) URL.revokeObjectURL(prevUrl);
+
+    setRecordedVideoUrl(prevUrl => {
+      if (prevUrl) {
+        console.log("Resetting on question change: Revoking previous recordedVideoUrl.");
+        URL.revokeObjectURL(prevUrl);
+      }
       return null;
     });
 
+    // Stop any active recording when question changes
     if (isRecording && mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-      mediaRecorderRef.current.stop(); 
+      console.log("Resetting on question change: Stopping active recording.");
+      mediaRecorderRef.current.stop();
+      // onstop handler will set isRecording to false
     }
-    setIsRecording(false);
-    setIsTranscribing(false);
+    // Explicitly set isRecording to false here if not handled by onstop, but can be a safeguard.
+    // setIsRecording(false); // Might be redundant if onstop handles it, but can be a safeguard.
+
+    setIsTranscribing(false); // Ensure transcribing state is reset
     setRecordingStartTime(null);
     setRecordingDurationSeconds(0);
     mediaChunksRef.current = [];
-    
+    console.log("Question changed, relevant states reset.");
+
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [question]); 
+  }, [question]);
 
 
   const toggleRecording = async () => {
@@ -209,20 +223,30 @@ export default function InterviewArea({
       toast({ title: "Permissions Required", description: "Camera and microphone access is needed to record.", variant: "destructive" });
       return;
     }
-    if (!videoStreamRef.current) { 
-       toast({ title: "Error", description: "Camera stream not available. Try refreshing.", variant: "destructive" });
+    if (!videoStreamRef.current || !videoStreamRef.current.active) { // Also check if stream is active
+       toast({ title: "Error", description: "Camera stream not available or inactive. Try refreshing or re-allowing permissions.", variant: "destructive" });
+       setHasCameraPermission(null); // Trigger permission re-check
       return;
     }
 
     if (isRecording) {
+      // Stop recording
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-        mediaRecorderRef.current.stop(); 
+        console.log("Stopping recording via toggle.");
+        mediaRecorderRef.current.stop();
+        // setIsRecording(false) will be handled by onstop
+      } else {
+        // Fallback if somehow isRecording is true but recorder is not recording
+        setIsRecording(false);
+        console.warn("toggleRecording: isRecording was true, but MediaRecorder was not in 'recording' state.");
       }
     } else {
-      setAnswer(''); 
+      // Start recording
+      setAnswer('');
       setRecordingDurationSeconds(0);
       mediaChunksRef.current = [];
-      if (recordedVideoUrl) { 
+      if (recordedVideoUrl) {
+        console.log("Starting new recording: Revoking previous recordedVideoUrl.");
         URL.revokeObjectURL(recordedVideoUrl);
         setRecordedVideoUrl(null);
       }
@@ -232,11 +256,11 @@ export default function InterviewArea({
           'video/webm;codecs=vp9,opus',
           'video/webm;codecs=vp8,opus',
           'video/webm;codecs=h264,opus',
-          'video/mp4;codecs=h264,aac', 
-          'video/webm',
+          'video/mp4;codecs=h264,aac',
+          'video/webm', // Fallback
         ];
-        
-        let chosenMimeType = 'video/webm';
+
+        let chosenMimeType = 'video/webm'; // Default fallback
         for (const type of mimeTypeOptions) {
           if (MediaRecorder.isTypeSupported(type)) {
             chosenMimeType = type;
@@ -244,11 +268,12 @@ export default function InterviewArea({
           }
         }
         console.log("Using MIME type for MediaRecorder:", chosenMimeType);
-        
+
         mediaRecorderRef.current = new MediaRecorder(videoStreamRef.current, { mimeType: chosenMimeType });
 
         mediaRecorderRef.current.ondataavailable = (event) => {
           if (event.data.size > 0) {
+            console.log("MediaRecorder: data available, chunk size:", event.data.size);
             mediaChunksRef.current.push(event.data);
           }
         };
@@ -256,32 +281,41 @@ export default function InterviewArea({
         mediaRecorderRef.current.onstart = () => {
           setIsRecording(true);
           setRecordingStartTime(Date.now());
+          console.log("MediaRecorder: recording started.");
           toast({ title: "Recording Started", description: "Record your video answer. Click camera again to stop."});
         };
-        
+
         mediaRecorderRef.current.onstop = async () => {
-          setIsRecording(false); 
+          setIsRecording(false);
           setIsTranscribing(true);
+          console.log("MediaRecorder: recording stopped.");
           toast({ title: "Recording Stopped", description: "Processing your answer..." });
 
           if (recordingStartTime) {
             const duration = Math.round((Date.now() - recordingStartTime) / 1000);
             setRecordingDurationSeconds(duration);
+            console.log("Recording duration:", duration, "seconds");
           }
           setRecordingStartTime(null);
 
           if (mediaChunksRef.current.length === 0) {
             toast({ title: "No Data Recorded", description: "It seems no video/audio data was captured.", variant: "destructive" });
             setIsTranscribing(false);
+            console.warn("MediaRecorder: onstop called with no media chunks.");
             return;
           }
 
           const mediaBlob = new Blob(mediaChunksRef.current, { type: chosenMimeType });
-          setRecordedVideoUrl(URL.createObjectURL(mediaBlob));
+          const videoUrl = URL.createObjectURL(mediaBlob);
+          setRecordedVideoUrl(videoUrl);
+          console.log("Created video blob and object URL:", videoUrl);
+
 
           const formData = new FormData();
+          // Ensure a file extension consistent with the MIME type for Whisper
           const fileExtension = chosenMimeType.includes('mp4') ? 'mp4' : 'webm';
-          formData.append('audio', mediaBlob, `recording.${fileExtension}`); 
+          formData.append('audio', mediaBlob, `recording.${fileExtension}`);
+          console.log("Prepared FormData with audio blob for transcription.");
 
           try {
             console.log('Sending audio to /api/transcribe');
@@ -291,22 +325,24 @@ export default function InterviewArea({
             });
 
             if (!response.ok) {
-              const errorData = await response.json().catch(() => ({ error: "Unknown server error" })); 
+              const errorData = await response.json().catch(() => ({ error: "Unknown server error during transcription" }));
               console.error("Transcription API server error:", response.status, errorData);
               throw new Error(errorData.error || `Server error: ${response.status}`);
             }
 
             const result = await response.json();
             setAnswer(result.transcript);
+            console.log("Transcription successful, transcript:", result.transcript);
             toast({ title: "Transcription Complete!", description: "Your answer is ready to submit."});
           } catch (error) {
             console.error("Transcription API error:", error);
             const message = error instanceof Error ? error.message : "Unknown transcription error.";
             toast({ title: "Transcription Failed", description: message, variant: "destructive", duration: 7000 });
-            setAnswer(''); 
+            setAnswer(''); // Clear answer on transcription failure
           } finally {
             setIsTranscribing(false);
-            mediaChunksRef.current = []; 
+            mediaChunksRef.current = []; // Clear chunks after processing
+            console.log("Transcription process finished.");
           }
         };
         mediaRecorderRef.current.start();
@@ -314,7 +350,7 @@ export default function InterviewArea({
         console.error("Error starting MediaRecorder:", err);
         const message = err instanceof Error ? err.message : "Could not start recording.";
         toast({ title: "Recording Error", description: `Failed to start video recording: ${message}`, variant: "destructive", duration: 7000 });
-        setIsRecording(false);
+        setIsRecording(false); // Ensure isRecording is false if start fails
       }
     }
   };
@@ -325,27 +361,28 @@ export default function InterviewArea({
       toast({title: "Busy", description: `Please wait for ${busyReason} to finish.`, variant: "default"});
       return;
     }
-    
-    if (!answer.trim() && !recordedVideoUrl) { 
+
+    if (!answer.trim() && !recordedVideoUrl) {
         toast({title: "No Answer Content", description: "Please record your answer. If transcription failed, you can still submit the video.", variant: "default"});
         return;
     }
      if (!answer.trim() && recordedVideoUrl) {
         toast({title: "Submitting Video", description: "Submitting video without transcribed text. AI text analysis will be limited."});
     }
-    
-    await onSubmitAnswer(answer, recordingDurationSeconds, recordedVideoUrl); 
+    console.log("Submitting answer. Text:", answer, "Duration:", recordingDurationSeconds, "Video URL:", recordedVideoUrl);
+    await onSubmitAnswer(answer, recordingDurationSeconds, recordedVideoUrl);
     setShowEvaluation(true);
   };
 
   const handleGetModel = async () => {
     if (isLoadingModelAnswer || isRecording || isTranscribing) return;
+    console.log("Requesting model answer.");
     await onGetModelAnswer();
     setShowModelAnswer(true);
-  }
+  };
 
   const progressPercentage = (questionNumber / totalQuestions) * 100;
-  
+
   const getTimeManagementFeedback = () => {
     if (!evaluationResult || recordingDurationSeconds <= 0) return null;
     if (recordingDurationSeconds < EXPECTED_ANSWER_TIME_SECONDS * 0.75) {
@@ -359,6 +396,7 @@ export default function InterviewArea({
 
   const recordButtonDisabled = hasCameraPermission === false || isLoadingEvaluation || isLoadingNewQuestion || isTranscribing;
   const submitButtonDisabled = (!answer.trim() && !recordedVideoUrl) || isLoadingEvaluation || isLoadingNewQuestion || isRecording || isTranscribing;
+
 
   return (
     <TooltipProvider>
@@ -387,7 +425,7 @@ export default function InterviewArea({
             <p className="text-xl mt-4 py-4 min-h-[6rem] leading-relaxed">{question}</p>
           )}
         </CardHeader>
-        
+
         <CardContent className="relative">
           {hasCameraPermission === null && (
             <Alert variant="default"><AlertDescription>Checking camera permissions...</AlertDescription></Alert>
@@ -401,12 +439,12 @@ export default function InterviewArea({
             </Alert>
           )}
 
-          {hasCameraPermission && ( 
+          {hasCameraPermission && (
             <div className={`mb-4 rounded-md overflow-hidden shadow-inner border bg-black ${!showVideoPreview ? 'hidden' : ''}`}>
               <video ref={videoPreviewRef} className="w-full aspect-video" autoPlay muted playsInline />
             </div>
           )}
-          
+
           {isRecording && (
               <div className="absolute top-2 left-1/2 -translate-x-1/2 bg-red-600 text-white px-3 py-1 rounded-full text-xs flex items-center shadow-lg animate-pulse z-10">
                   <Video size={14} className="mr-1" /> REC
@@ -417,9 +455,9 @@ export default function InterviewArea({
                   <Loader2 size={14} className="mr-1 animate-spin" /> TRANSCRIBING...
               </div>
           )}
-          
+
           <div className={`min-h-[50px] p-3 rounded-md border bg-muted text-muted-foreground ${answer.trim() ? 'text-foreground' : ''} hidden`}
-            aria-live="polite" 
+            aria-live="polite"
           >
             {answer.trim() ? answer : "Transcribed text will appear here..."}
           </div>
@@ -460,10 +498,10 @@ export default function InterviewArea({
             <div className="flex gap-2 w-full sm:w-auto items-center">
               <Tooltip>
                 <TooltipTrigger asChild>
-                   <Button 
-                    onClick={toggleRecording} 
+                   <Button
+                    onClick={toggleRecording}
                     variant={isRecording ? "destructive" : "outline"}
-                    size="lg" 
+                    size="lg"
                     disabled={recordButtonDisabled}
                     aria-label={isRecording ? "Stop video recording" : "Start video recording answer"}
                     className={`${isRecording ? "bg-red-500 hover:bg-red-600 text-white" : ""} py-3 px-6 rounded-full gap-2`}
@@ -476,14 +514,14 @@ export default function InterviewArea({
                   <p>{isRecording ? "Stop video recording" : (isTranscribing ? "Processing video/audio..." : "Start video recording answer")}</p>
                 </TooltipContent>
               </Tooltip>
-              
+
               <Button onClick={handleSubmit} disabled={submitButtonDisabled} className="flex-grow sm:flex-grow-0 gap-1" size="lg">
                 {isLoadingEvaluation ? (
                   <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                 ) : (
                   <Send size={20} />
                 )}
-                Submit 
+                Submit
               </Button>
             </div>
           </CardFooter>
@@ -546,7 +584,7 @@ export default function InterviewArea({
                   </AlertDescription>
                 </Alert>
               )}
-            
+
             {!modelAnswerText && (
                <Tooltip>
                 <TooltipTrigger asChild>
@@ -572,13 +610,13 @@ export default function InterviewArea({
          <Card className="shadow-xl animate-in fade-in duration-500 mt-4">
            <CardHeader className="flex flex-row justify-between items-center">
              <CardTitle className="text-xl font-semibold flex items-center text-indigo-600 gap-1"><Target size={20} className="mr-1" />Model Answer</CardTitle>
-           </Header>
+           </CardHeader>
            <CardContent>
              <p className="text-muted-foreground bg-indigo-50 p-3 rounded-md border border-indigo-200">{modelAnswerText}</p>
            </CardContent>
          </Card>
       )}
-      
+
       {showEvaluation && !isLoadingEvaluation && (
         <div className="mt-6 flex justify-end">
           {isLastQuestion ? (
@@ -596,4 +634,3 @@ export default function InterviewArea({
     </TooltipProvider>
   );
 }
-
