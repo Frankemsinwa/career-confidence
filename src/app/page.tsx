@@ -55,28 +55,42 @@ export default function Home() {
   const handleStartInterview = async (settings: InterviewSettings) => {
     setIsLoadingSetup(true);
     setCurrentSettings(settings);
-    try {
-      const aiInput: GenerateInterviewQuestionsInput = {
-        jobRole: settings.jobRole,
-        interviewType: settings.interviewType,
-        difficultyLevel: settings.difficultyLevel,
-        numQuestions: settings.numQuestions,
-      };
-      const result = await generateInterviewQuestions(aiInput);
-      if (result.questions && result.questions.length > 0) {
-        setGeneratedQuestions(result.questions);
-        setCurrentQuestionIndex(0);
-        setCurrentEvaluation(null);
-        setCurrentModelAnswer(null);
-        setCurrentCommunicationAnalysis(null);
-        setIsInterviewActive(true);
-        toast({ title: "Interview Started!", description: `Generated ${result.questions.length} questions for you.` });
-      } else {
-        toast({ title: "Error", description: "Could not generate questions. Please try again.", variant: "destructive" });
+    
+    // Clear previous interview state
+    setGeneratedQuestions([]);
+    setCurrentQuestionIndex(0);
+    setCurrentEvaluation(null);
+    setCurrentModelAnswer(null);
+    setCurrentCommunicationAnalysis(null);
+
+    // Check if the user provided their own question
+    if (settings.customQuestion && settings.customQuestion.length > 0) {
+      setGeneratedQuestions([settings.customQuestion]);
+      setIsInterviewActive(true);
+      toast({ title: "Interview Started!", description: "Ready to practice your custom question." });
+    } else {
+      // Otherwise, generate questions with AI
+      try {
+        const aiInput: GenerateInterviewQuestionsInput = {
+          jobRole: settings.jobRole,
+          interviewType: settings.interviewType,
+          difficultyLevel: settings.difficultyLevel,
+          numQuestions: settings.numQuestions,
+        };
+        const result = await generateInterviewQuestions(aiInput);
+        if (result.questions && result.questions.length > 0) {
+          setGeneratedQuestions(result.questions);
+          setIsInterviewActive(true);
+          toast({ title: "Interview Started!", description: `Generated ${result.questions.length} questions for you.` });
+        } else {
+          toast({ title: "Error", description: "Could not generate questions. Please try again.", variant: "destructive" });
+          setCurrentSettings(null); // Go back to setup
+        }
+      } catch (error) {
+        console.error("Error generating questions:", error);
+        toast({ title: "Error", description: "Failed to start interview. Check console for details.", variant: "destructive" });
+        setCurrentSettings(null); // Go back to setup
       }
-    } catch (error) {
-      console.error("Error generating questions:", error);
-      toast({ title: "Error", description: "Failed to start interview. Check console for details.", variant: "destructive" });
     }
     setIsLoadingSetup(false);
   };
@@ -196,7 +210,7 @@ export default function Home() {
   };
   
   const handleSkipQuestion = async () => {
-    if (!currentSettings) return;
+    if (!currentSettings || currentSettings.customQuestion) return;
     setIsLoadingNewQuestion(true);
     setCurrentEvaluation(null);
     setCurrentModelAnswer(null);
@@ -230,7 +244,7 @@ export default function Home() {
   };
 
   const handleRegenerateQuestion = async () => {
-     if (!currentSettings) return;
+     if (!currentSettings || currentSettings.customQuestion) return;
     setIsLoadingNewQuestion(true);
     setCurrentEvaluation(null);
     setCurrentModelAnswer(null);
@@ -261,12 +275,6 @@ export default function Home() {
 
   const handleFinishInterview = () => {
     setIsInterviewActive(false);
-    // Don't reset currentSettings here, so the summary screen can show.
-    // setGeneratedQuestions([]); // Keep questions for potential review on summary? Or clear. Let's clear.
-    // setCurrentQuestionIndex(0);
-    // setCurrentEvaluation(null);
-    // setCurrentModelAnswer(null);
-    // setCurrentCommunicationAnalysis(null);
     toast({ title: "Interview Finished!", description: "Great job on completing your practice session!" });
   };
   
@@ -280,7 +288,6 @@ export default function Home() {
           (<InterviewSetupForm 
             onSubmit={handleStartInterview} 
             isLoading={isLoadingSetup}
-            onDailyPractice={() => {}} 
           />)
          : 
           (<Card className="w-full max-w-md mx-auto text-center shadow-xl">
@@ -326,6 +333,7 @@ export default function Home() {
           communicationAnalysisResult={currentCommunicationAnalysis}
           modelAnswerText={currentModelAnswer}
           isLastQuestion={isLastQuestion}
+          isCustomQuestion={!!currentSettings?.customQuestion}
         />
       )}
 

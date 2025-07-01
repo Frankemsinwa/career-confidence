@@ -1,11 +1,10 @@
-
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
-import { Loader2, Send, SkipForward, RefreshCcw, Lightbulb, CheckCircle, Video, VideoOff, AlertCircle, Play, Eye, EyeOff, Award, BarChartHorizontal, Target } from 'lucide-react';
+import { Loader2, Send, SkipForward, RefreshCcw, Lightbulb, CheckCircle, Video, VideoOff, AlertCircle, Eye, EyeOff, Award, BarChartHorizontal, Target } from 'lucide-react';
 import type { EvaluateAnswerOutput } from '@/ai/flows/evaluate-answer';
 import type { AnalyzeCommunicationOutput } from '@/ai/flows/analyze-communication-flow';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -30,6 +29,7 @@ type InterviewAreaProps = {
   communicationAnalysisResult: AnalyzeCommunicationOutput | null;
   modelAnswerText: string | null;
   isLastQuestion: boolean;
+  isCustomQuestion: boolean;
 };
 
 const EXPECTED_ANSWER_TIME_SECONDS = 120;
@@ -51,6 +51,7 @@ export default function InterviewArea({
   communicationAnalysisResult,
   modelAnswerText,
   isLastQuestion,
+  isCustomQuestion,
 }: InterviewAreaProps) {
   const [answer, setAnswer] = useState('');
   const [showEvaluation, setShowEvaluation] = useState(false);
@@ -75,9 +76,9 @@ export default function InterviewArea({
   // Effect to get camera/mic permissions
   useEffect(() => {
     const getPermissions = async () => {
-      if (videoStreamRef.current && videoStreamRef.current.active) { // Check if stream is already active
+      if (videoStreamRef.current && videoStreamRef.current.active) {
         console.log("User media stream already active and stored.");
-        if (hasCameraPermission !== true) setHasCameraPermission(true); // Ensure state consistency
+        if (hasCameraPermission !== true) setHasCameraPermission(true);
         return;
       }
       console.log("Attempting to get user media (video & audio)...");
@@ -99,7 +100,6 @@ export default function InterviewArea({
     };
     getPermissions();
 
-    // Cleanup function
     return () => {
       if (videoStreamRef.current) {
         console.log("Cleaning up media stream: Stopping all tracks on component unmount or before re-acquiring.");
@@ -112,9 +112,9 @@ export default function InterviewArea({
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Runs once on mount to get permissions
+  }, []);
 
-  // Effect to manage video preview element (attaching stream, playing, event listeners)
+  // Effect to manage video preview element
   useEffect(() => {
     const videoElement = videoPreviewRef.current;
 
@@ -128,57 +128,26 @@ export default function InterviewArea({
       const handleMetadataLoaded = () => {
         console.log("Video metadata loaded. ReadyState:", videoElement?.readyState, "Attempting to play...");
         videoElement.play()
-          .then(() => {
-            console.log("Video preview play() promise resolved.");
-          })
-          .catch(error => {
-            console.warn("Video preview play() promise rejected:", error);
-          });
-      };
-
-      const handlePlaying = () => console.log("Video preview is playing.");
-      const handleStalled = () => console.warn("Video preview stalled.");
-      const handleSuspended = () => console.warn("Video preview suspended.");
-      const handleError = (e: Event) => {
-        console.error("Video preview element error event:", e);
-        if (videoElement?.error) {
-          console.error("Video error object:", videoElement.error);
-        }
+          .then(() => console.log("Video preview play() promise resolved."))
+          .catch(error => console.warn("Video preview play() promise rejected:", error));
       };
 
       videoElement.addEventListener('loadedmetadata', handleMetadataLoaded);
-      videoElement.addEventListener('playing', handlePlaying);
-      videoElement.addEventListener('stalled', handleStalled);
-      videoElement.addEventListener('suspend', handleSuspended);
-      videoElement.addEventListener('error', handleError);
-
-      // If metadata is already loaded (e.g., on re-render when stream is already set), try playing
       if (videoElement.readyState >= videoElement.HAVE_METADATA) {
-         console.log("Video already has metadata, attempting to play directly.");
-         videoElement.play().catch(e => console.warn("Direct play attempt failed:", e));
+         handleMetadataLoaded();
       }
 
-
       return () => {
-        console.log("Cleaning up video preview listeners for effect change.");
         videoElement.removeEventListener('loadedmetadata', handleMetadataLoaded);
-        videoElement.removeEventListener('playing', handlePlaying);
-        videoElement.removeEventListener('stalled', handleStalled);
-        videoElement.removeEventListener('suspend', handleSuspended);
-        videoElement.removeEventListener('error', handleError);
-        // Only pause if it has a srcObject and we are not just hiding the preview
         if (videoElement.srcObject) {
           videoElement.pause();
-          // Avoid nullifying srcObject if the stream is still valid and might be reused
         }
       };
     } else if (!showVideoPreview && videoElement && videoElement.srcObject) {
         console.log("Video preview hidden, pausing video.");
         videoElement.pause();
-    } else {
-      console.log("Video preview setup skipped. Conditions: hasCameraPermission:", hasCameraPermission, "showVideoPreview:", showVideoPreview, "videoElement:", !!videoElement, "stream:", !!videoStreamRef.current);
     }
-  }, [hasCameraPermission, showVideoPreview]); // Re-run when permission or visibility changes
+  }, [hasCameraPermission, showVideoPreview]);
 
 
   useEffect(() => {
@@ -189,64 +158,47 @@ export default function InterviewArea({
 
     setRecordedVideoUrl(prevUrl => {
       if (prevUrl) {
-        console.log("Resetting on question change: Revoking previous recordedVideoUrl.");
         URL.revokeObjectURL(prevUrl);
       }
       return null;
     });
 
-    // Stop any active recording when question changes
     if (isRecording && mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-      console.log("Resetting on question change: Stopping active recording.");
       mediaRecorderRef.current.stop();
-      // onstop handler will set isRecording to false
     }
-    // Explicitly set isRecording to false here if not handled by onstop, but can be a safeguard.
-    // setIsRecording(false); // Might be redundant if onstop handles it, but can be a safeguard.
-
-    setIsTranscribing(false); // Ensure transcribing state is reset
+    
+    setIsTranscribing(false);
     setRecordingStartTime(null);
     setRecordingDurationSeconds(0);
     mediaChunksRef.current = [];
-    console.log("Question changed, relevant states reset.");
-
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [question]);
 
 
   const toggleRecording = async () => {
     if (isTranscribing) {
-      toast({ title: "Busy", description: "Please wait for transcription to complete.", variant: "default" });
+      toast({ title: "Busy", description: "Please wait for transcription to complete." });
       return;
     }
     if (hasCameraPermission === false) {
       toast({ title: "Permissions Required", description: "Camera and microphone access is needed to record.", variant: "destructive" });
       return;
     }
-    if (!videoStreamRef.current || !videoStreamRef.current.active) { // Also check if stream is active
+    if (!videoStreamRef.current || !videoStreamRef.current.active) {
        toast({ title: "Error", description: "Camera stream not available or inactive. Try refreshing or re-allowing permissions.", variant: "destructive" });
-       setHasCameraPermission(null); // Trigger permission re-check
+       setHasCameraPermission(null);
       return;
     }
 
     if (isRecording) {
-      // Stop recording
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-        console.log("Stopping recording via toggle.");
         mediaRecorderRef.current.stop();
-        // setIsRecording(false) will be handled by onstop
-      } else {
-        // Fallback if somehow isRecording is true but recorder is not recording
-        setIsRecording(false);
-        console.warn("toggleRecording: isRecording was true, but MediaRecorder was not in 'recording' state.");
       }
     } else {
-      // Start recording
       setAnswer('');
       setRecordingDurationSeconds(0);
       mediaChunksRef.current = [];
       if (recordedVideoUrl) {
-        console.log("Starting new recording: Revoking previous recordedVideoUrl.");
         URL.revokeObjectURL(recordedVideoUrl);
         setRecordedVideoUrl(null);
       }
@@ -257,126 +209,100 @@ export default function InterviewArea({
           'video/webm;codecs=vp8,opus',
           'video/webm;codecs=h264,opus',
           'video/mp4;codecs=h264,aac',
-          'video/webm', // Fallback
+          'video/webm',
         ];
 
-        let chosenMimeType = 'video/webm'; // Default fallback
+        let chosenMimeType = 'video/webm';
         for (const type of mimeTypeOptions) {
           if (MediaRecorder.isTypeSupported(type)) {
             chosenMimeType = type;
             break;
           }
         }
-        console.log("Using MIME type for MediaRecorder:", chosenMimeType);
-
+        
         mediaRecorderRef.current = new MediaRecorder(videoStreamRef.current, { mimeType: chosenMimeType });
 
         mediaRecorderRef.current.ondataavailable = (event) => {
-          if (event.data.size > 0) {
-            console.log("MediaRecorder: data available, chunk size:", event.data.size);
-            mediaChunksRef.current.push(event.data);
-          }
+          if (event.data.size > 0) mediaChunksRef.current.push(event.data);
         };
 
         mediaRecorderRef.current.onstart = () => {
           setIsRecording(true);
           setRecordingStartTime(Date.now());
-          console.log("MediaRecorder: recording started.");
           toast({ title: "Recording Started", description: "Record your video answer. Click camera again to stop."});
         };
 
         mediaRecorderRef.current.onstop = async () => {
           setIsRecording(false);
           setIsTranscribing(true);
-          console.log("MediaRecorder: recording stopped.");
           toast({ title: "Recording Stopped", description: "Processing your answer..." });
 
           if (recordingStartTime) {
-            const duration = Math.round((Date.now() - recordingStartTime) / 1000);
-            setRecordingDurationSeconds(duration);
-            console.log("Recording duration:", duration, "seconds");
+            setRecordingDurationSeconds(Math.round((Date.now() - recordingStartTime) / 1000));
           }
           setRecordingStartTime(null);
 
           if (mediaChunksRef.current.length === 0) {
-            toast({ title: "No Data Recorded", description: "It seems no video/audio data was captured.", variant: "destructive" });
+            toast({ title: "No Data Recorded", variant: "destructive" });
             setIsTranscribing(false);
-            console.warn("MediaRecorder: onstop called with no media chunks.");
             return;
           }
 
           const mediaBlob = new Blob(mediaChunksRef.current, { type: chosenMimeType });
-          const videoUrl = URL.createObjectURL(mediaBlob);
-          setRecordedVideoUrl(videoUrl);
-          console.log("Created video blob and object URL:", videoUrl);
-
-
+          setRecordedVideoUrl(URL.createObjectURL(mediaBlob));
+          
           const formData = new FormData();
-          // Ensure a file extension consistent with the MIME type for Whisper
           const fileExtension = chosenMimeType.includes('mp4') ? 'mp4' : 'webm';
           formData.append('audio', mediaBlob, `recording.${fileExtension}`);
-          console.log("Prepared FormData with audio blob for transcription.");
 
           try {
-            console.log('Sending audio to /api/transcribe');
             const response = await fetch('/api/transcribe', {
               method: 'POST',
               body: formData,
             });
 
             if (!response.ok) {
-              const errorData = await response.json().catch(() => ({ error: "Unknown server error during transcription" }));
-              console.error("Transcription API server error:", response.status, errorData);
+              const errorData = await response.json().catch(() => ({ error: "Unknown server error" }));
               throw new Error(errorData.error || `Server error: ${response.status}`);
             }
 
             const result = await response.json();
             setAnswer(result.transcript);
-            console.log("Transcription successful, transcript:", result.transcript);
             toast({ title: "Transcription Complete!", description: "Your answer is ready to submit."});
           } catch (error) {
-            console.error("Transcription API error:", error);
-            const message = error instanceof Error ? error.message : "Unknown transcription error.";
-            toast({ title: "Transcription Failed", description: message, variant: "destructive", duration: 7000 });
-            setAnswer(''); // Clear answer on transcription failure
+            const message = error instanceof Error ? error.message : "Unknown error.";
+            toast({ title: "Transcription Failed", description: message, variant: "destructive" });
+            setAnswer('');
           } finally {
             setIsTranscribing(false);
-            mediaChunksRef.current = []; // Clear chunks after processing
-            console.log("Transcription process finished.");
+            mediaChunksRef.current = [];
           }
         };
         mediaRecorderRef.current.start();
       } catch (err) {
-        console.error("Error starting MediaRecorder:", err);
         const message = err instanceof Error ? err.message : "Could not start recording.";
-        toast({ title: "Recording Error", description: `Failed to start video recording: ${message}`, variant: "destructive", duration: 7000 });
-        setIsRecording(false); // Ensure isRecording is false if start fails
+        toast({ title: "Recording Error", description: `Failed to start video recording: ${message}`, variant: "destructive" });
+        setIsRecording(false);
       }
     }
   };
 
   const handleSubmit = async () => {
-    if (isLoadingEvaluation || isRecording || isTranscribing) {
-      let busyReason = isLoadingEvaluation ? "current analysis" : (isRecording ? "recording" : "transcription");
-      toast({title: "Busy", description: `Please wait for ${busyReason} to finish.`, variant: "default"});
-      return;
-    }
+    if (isLoadingEvaluation || isRecording || isTranscribing) return;
 
     if (!answer.trim() && !recordedVideoUrl) {
-        toast({title: "No Answer Content", description: "Please record your answer. If transcription failed, you can still submit the video.", variant: "default"});
+        toast({title: "No Answer Content", description: "Please record your answer."});
         return;
     }
-     if (!answer.trim() && recordedVideoUrl) {
+    if (!answer.trim() && recordedVideoUrl) {
         toast({title: "Submitting Video", description: "Submitting video without transcribed text. AI text analysis will be limited."});
     }
-    console.log("Submitting answer. Text:", answer, "Duration:", recordingDurationSeconds, "Video URL:", recordedVideoUrl);
     await onSubmitAnswer(answer, recordingDurationSeconds, recordedVideoUrl);
     setShowEvaluation(true);
   };
 
   const handleGetModel = async () => {
     if (isLoadingModelAnswer || isRecording || isTranscribing) return;
-    console.log("Requesting model answer.");
     await onGetModelAnswer();
     setShowModelAnswer(true);
   };
@@ -396,7 +322,6 @@ export default function InterviewArea({
 
   const recordButtonDisabled = hasCameraPermission === false || isLoadingEvaluation || isLoadingNewQuestion || isTranscribing;
   const submitButtonDisabled = (!answer.trim() && !recordedVideoUrl) || isLoadingEvaluation || isLoadingNewQuestion || isRecording || isTranscribing;
-
 
   return (
     <TooltipProvider>
@@ -480,19 +405,19 @@ export default function InterviewArea({
             <div className="flex gap-2 w-full sm:w-auto">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button onClick={onRegenerateQuestion} variant="outline" disabled={recordButtonDisabled || isRecording} className="gap-1">
+                  <Button onClick={onRegenerateQuestion} variant="outline" disabled={recordButtonDisabled || isRecording || isCustomQuestion} className="gap-1">
                     <RefreshCcw size={18} /> Regenerate
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent><p>Get a different question.</p></TooltipContent>
+                <TooltipContent><p>{isCustomQuestion ? 'Cannot regenerate your own question' : 'Get a different question.'}</p></TooltipContent>
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button onClick={onSkipQuestion} variant="outline" disabled={recordButtonDisabled || isRecording} className="gap-1">
+                  <Button onClick={onSkipQuestion} variant="outline" disabled={recordButtonDisabled || isRecording || isCustomQuestion} className="gap-1">
                     <SkipForward size={18} /> Skip
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent><p>Skip this question.</p></TooltipContent>
+                <TooltipContent><p>{isCustomQuestion ? 'Cannot skip your own question' : 'Skip this question.'}</p></TooltipContent>
               </Tooltip>
             </div>
             <div className="flex gap-2 w-full sm:w-auto items-center">

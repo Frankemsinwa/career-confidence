@@ -1,4 +1,3 @@
-
 import type { EvaluateAnswerOutput } from '@/ai/flows/evaluate-answer';
 import type { AnalyzeCommunicationOutput } from '@/ai/flows/analyze-communication-flow';
 
@@ -16,6 +15,7 @@ export interface InterviewSettings {
   interviewType: InterviewType;
   difficultyLevel: DifficultyLevel;
   numQuestions: QuestionCount;
+  customQuestion?: string;
 }
 
 export interface StoredAttempt {
