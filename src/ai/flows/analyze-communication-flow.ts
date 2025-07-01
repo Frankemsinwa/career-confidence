@@ -15,7 +15,7 @@ const AnalyzeCommunicationInputSchema = z.object({
   answerText: z.string().describe('The transcribed text of the user\'s answer.'),
   recordingDurationSeconds: z
     .number()
-    .positive()
+    .min(0) // Allow 0, not just positive values.
     .describe('The duration of the user\'s answer recording in seconds.'),
   jobRole: z.string().describe('The job role the user is interviewing for.'),
   difficulty: z.enum(['Beginner', 'Intermediate', 'Advanced']).describe('The difficulty level of the interview.')
@@ -114,7 +114,7 @@ const analyzeCommunicationFlow = ai.defineFlow(
   async (input: AnalyzeCommunicationInput) => {
     const wordCount = input.answerText.split(/\s+/).filter(Boolean).length;
     let calculatedWPM = 0;
-    if (input.recordingDurationSeconds > 0 && wordCount > 0) { // also check wordCount to avoid division by zero if answerText is empty
+    if (input.recordingDurationSeconds > 0 && wordCount > 0) {
         calculatedWPM = Math.round((wordCount / input.recordingDurationSeconds) * 60);
     }
 
@@ -125,15 +125,13 @@ const analyzeCommunicationFlow = ai.defineFlow(
 
     const {output} = await analyzeCommunicationPrompt(promptInternalInput);
     
-    // Ensure the WPM in the output is the one we calculated, in case the LLM deviates or can't calculate for empty text.
+    // Ensure the WPM in the output is the one we calculated, and override pace feedback if calculation is not possible.
     if (output) {
         output.speakingPaceWPM = calculatedWPM;
-        // If wordCount is 0, pace feedback might be strange from LLM, clear it or set to a default.
-        if (wordCount === 0) {
-            output.paceFeedback = "No speech detected or answer was empty, so pace could not be calculated.";
+        if (wordCount === 0 || input.recordingDurationSeconds === 0) {
+            output.paceFeedback = "Speaking pace could not be calculated as no recording duration was provided or the answer was empty.";
         }
     }
     return output!;
   }
 );
-
