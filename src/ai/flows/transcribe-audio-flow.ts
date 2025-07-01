@@ -1,7 +1,6 @@
-
 'use server';
 /**
- * @fileOverview Transcribes audio using a Whisper model via OpenRouter.
+ * @fileOverview Transcribes audio using OpenAI's Whisper model.
  *
  * - transcribeAudio - A function that transcribes an audio file.
  * - TranscribeAudioInput - The input type for the transcribeAudio function.
@@ -12,18 +11,13 @@ import { ai } from '@/ai/genkit';
 import { z } from 'genkit';
 import OpenAI from 'openai';
 
-// Ensure OPENROUTER_API_KEY is available
-if (!process.env.OPENROUTER_API_KEY) {
-  throw new Error('OPENROUTER_API_KEY is not set in environment variables.');
+// Ensure OPENAI_API_KEY is available
+if (!process.env.OPENAI_API_KEY) {
+  throw new Error('OPENAI_API_KEY is not set in environment variables.');
 }
 
-const openrouter = new OpenAI({
-  baseURL: "https://openrouter.ai/api/v1",
-  apiKey: process.env.OPENROUTER_API_KEY,
-  defaultHeaders: {
-    "HTTP-Referer": typeof window !== 'undefined' ? window.location.href : 'https://careerconfidence.pro', // Replace with your actual app URL
-    "X-Title": "Career Confidence", // Replace with your actual app name
-  },
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
 });
 
 const TranscribeAudioInputSchema = z.object({
@@ -51,18 +45,16 @@ const transcribeAudioFlow = ai.defineFlow(
         throw new Error('Invalid audio file provided to transcription flow.');
     }
     try {
-      console.log('Transcribe Audio Flow (OpenRouter): Received audio file, attempting transcription with Whisper.');
-      // Using 'openai/whisper-1' which is a common identifier for Whisper on OpenRouter.
-      // Check OpenRouter documentation for the most up-to-date or specific model identifiers if needed.
-      const transcription = await openrouter.audio.transcriptions.create({
+      console.log('Transcribe Audio Flow (OpenAI): Received audio file, attempting transcription with whisper-1.');
+      const transcription = await openai.audio.transcriptions.create({
         file: input.audioFile,
-        model: 'openai/whisper-1', 
+        model: 'whisper-1', 
       });
-      console.log('Transcribe Audio Flow (OpenRouter): Transcription successful.');
+      console.log('Transcribe Audio Flow (OpenAI): Transcription successful.');
       return { transcript: transcription.text };
     } catch (error) {
-      console.error('Error in transcribeAudioFlow (OpenRouter):', error);
-      let message = 'Failed to transcribe audio with Whisper via OpenRouter.';
+      console.error('Error in transcribeAudioFlow (OpenAI):', error);
+      let message = 'Failed to transcribe audio with OpenAI Whisper.';
       if (error instanceof Error) {
         message += ` Details: ${error.message}`;
       }
@@ -70,4 +62,3 @@ const transcribeAudioFlow = ai.defineFlow(
     }
   }
 );
-
