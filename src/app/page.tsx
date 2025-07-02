@@ -33,7 +33,7 @@ export default function ChooseModePage() {
             </CardHeader>
             <CardContent>
               <CardDescription className="text-center text-base">
-                Rehearse your presentation, get feedback on clarity, pacing, and structure. (Coming Soon!)
+                Rehearse your presentation, get feedback on clarity, pacing, and structure.
               </CardDescription>
             </CardContent>
           </Card>

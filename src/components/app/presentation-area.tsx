@@ -42,13 +42,13 @@ export default function PresentationArea({
   const [recordedVideoUrl, setRecordedVideoUrl] = useState<string | null>(null);
   
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordingStartTimeRef = useRef<number | null>(null);
   
   const targetSeconds = timeFrameToSeconds(settings.timeFrame);
   const { toast } = useToast();
 
-  // Get camera permissions
+  // Get camera permissions, runs only once on mount
   useEffect(() => {
     async function getPermissions() {
       try {
@@ -67,10 +67,15 @@ export default function PresentationArea({
     getPermissions();
 
     return () => {
+      // Cleanup: stop camera tracks, clear timer, and revoke any video URLs
       videoStreamRef.current?.getTracks().forEach(track => track.stop());
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+      if (recordedVideoUrl) {
+        URL.revokeObjectURL(recordedVideoUrl);
+      }
     };
-  }, [toast]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Empty dependency array ensures this runs only once.
   
   const startTimer = () => {
     recordingStartTimeRef.current = Date.now();
@@ -100,7 +105,10 @@ export default function PresentationArea({
       mediaRecorderRef.current?.stop();
     } else {
       setTranscript('');
+      // Revoke old URL before creating a new one
+      if (recordedVideoUrl) URL.revokeObjectURL(recordedVideoUrl);
       setRecordedVideoUrl(null);
+
       mediaChunksRef.current = [];
 
       const mimeType = 'video/webm';
@@ -129,7 +137,8 @@ export default function PresentationArea({
         toast({ title: "Recording stopped", description: "Transcribing your presentation..." });
 
         const mediaBlob = new Blob(mediaChunksRef.current, { type: mimeType });
-        setRecordedVideoUrl(URL.createObjectURL(mediaBlob));
+        const newVideoUrl = URL.createObjectURL(mediaBlob);
+        setRecordedVideoUrl(newVideoUrl);
         
         const formData = new FormData();
         formData.append('audio', mediaBlob, `presentation.webm`);
@@ -139,7 +148,7 @@ export default function PresentationArea({
           if (!response.ok) throw new Error('Transcription failed on server.');
           const result = await response.json();
           setTranscript(result.transcript);
-          await onSubmit(result.transcript, duration, URL.createObjectURL(mediaBlob));
+          await onSubmit(result.transcript, duration, newVideoUrl);
         } catch (error) {
           toast({ title: "Transcription Failed", description: "Could not transcribe audio.", variant: "destructive" });
         } finally {
@@ -152,6 +161,7 @@ export default function PresentationArea({
   };
   
   const timerColorClass = () => {
+      if (!targetSeconds) return 'text-primary';
       const percentage = (elapsedSeconds / targetSeconds) * 100;
       if (percentage > 100) return 'text-red-500';
       if (percentage > 80) return 'text-yellow-500';
@@ -230,7 +240,7 @@ export default function PresentationArea({
                          <div className="bg-muted p-3 rounded-md">
                             <h4 className="font-semibold flex items-center gap-2"><BarChartHorizontal/>Stats</h4>
                             <p className="text-sm">Speaking Pace: <strong>{analysisResult.speakingPaceWPM} WPM</strong></p>
-                            <p className="text-sm">Duration: <strong>{elapsedSeconds}s</strong></p>
+                            <p className="text-sm">Duration: <strong>{analysisResult.actualDurationSeconds}s</strong></p>
                          </div>
                     </div>
                 </div>
