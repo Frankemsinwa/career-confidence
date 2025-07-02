@@ -24,6 +24,8 @@ import {
   Download,
   FileText,
   Info,
+  Mic,
+  X,
 } from 'lucide-react';
 import type { EvaluateAnswerOutput } from '@/ai/flows/evaluate-answer';
 import type { AnalyzeCommunicationOutput } from '@/ai/flows/analyze-communication-flow';
@@ -98,6 +100,9 @@ export default function InterviewArea({
   const videoStreamRef = useRef<MediaStream | null>(null);
   const [showVideoPreview, setShowVideoPreview] = useState(true);
 
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
   const { toast } = useToast();
 
   // Effect to get camera/mic permissions
@@ -137,6 +142,9 @@ export default function InterviewArea({
         console.log("Cleaning up: Revoking recordedVideoUrl object URL.");
         URL.revokeObjectURL(recordedVideoUrl);
       }
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -162,6 +170,7 @@ export default function InterviewArea({
     setAnswer('');
     setShowEvaluation(false);
     setShowModelAnswer(false);
+    cancelCountdown();
 
     setRecordedVideoUrl(prevUrl => {
       if (prevUrl) {
@@ -181,36 +190,32 @@ export default function InterviewArea({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [question]);
 
-
-  const toggleRecording = async () => {
-    if (isTranscribing) {
-      toast({ title: "Busy", description: "Please wait for transcription to complete." });
-      return;
-    }
-    if (hasCameraPermission === false) {
-      toast({ title: "Permissions Required", description: "Camera and microphone access is needed to record.", variant: "destructive" });
-      return;
-    }
-    if (!videoStreamRef.current || !videoStreamRef.current.active) {
-       toast({ title: "Error", description: "Camera stream not available or inactive. Try refreshing or re-allowing permissions.", variant: "destructive" });
-       setHasCameraPermission(null);
-      return;
-    }
-
-    if (isRecording) {
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-        mediaRecorderRef.current.stop();
+  const startCountdown = () => {
+    setCountdown(3);
+    countdownIntervalRef.current = setInterval(() => {
+        setCountdown(prev => {
+            if (prev === null || prev <= 1) {
+                clearInterval(countdownIntervalRef.current!);
+                countdownIntervalRef.current = null;
+                startRecording();
+                return null;
+            }
+            return prev - 1;
+        });
+    }, 1000);
+  };
+  
+  const cancelCountdown = () => {
+      if (countdownIntervalRef.current) {
+          clearInterval(countdownIntervalRef.current);
+          countdownIntervalRef.current = null;
       }
-    } else {
-      setAnswer('');
-      setRecordingDurationSeconds(0);
-      mediaChunksRef.current = [];
-      if (recordedVideoUrl) {
-        URL.revokeObjectURL(recordedVideoUrl);
-        setRecordedVideoUrl(null);
-      }
+      setCountdown(null);
+  };
 
-      try {
+
+  const startRecording = async () => {
+     try {
         const mimeTypeOptions = [
           'video/webm;codecs=vp9,opus',
           'video/webm;codecs=vp8,opus',
@@ -228,7 +233,7 @@ export default function InterviewArea({
         }
         chosenMimeTypeRef.current = chosenMimeType;
         
-        mediaRecorderRef.current = new MediaRecorder(videoStreamRef.current, { mimeType: chosenMimeType });
+        mediaRecorderRef.current = new MediaRecorder(videoStreamRef.current!, { mimeType: chosenMimeType });
 
         mediaRecorderRef.current.ondataavailable = (event) => {
           if (event.data.size > 0) mediaChunksRef.current.push(event.data);
@@ -292,11 +297,46 @@ export default function InterviewArea({
         toast({ title: "Recording Error", description: `Failed to start video recording: ${message}`, variant: "destructive" });
         setIsRecording(false);
       }
+  }
+
+
+  const handleRecordButtonClick = async () => {
+    if (countdown !== null) {
+      cancelCountdown();
+      return;
+    }
+    if (isTranscribing) {
+      toast({ title: "Busy", description: "Please wait for transcription to complete." });
+      return;
+    }
+    if (hasCameraPermission === false) {
+      toast({ title: "Permissions Required", description: "Camera and microphone access is needed to record.", variant: "destructive" });
+      return;
+    }
+    if (!videoStreamRef.current || !videoStreamRef.current.active) {
+       toast({ title: "Error", description: "Camera stream not available or inactive. Try refreshing or re-allowing permissions.", variant: "destructive" });
+       setHasCameraPermission(null);
+      return;
+    }
+
+    if (isRecording) {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        mediaRecorderRef.current.stop();
+      }
+    } else {
+      setAnswer('');
+      setRecordingDurationSeconds(0);
+      mediaChunksRef.current = [];
+      if (recordedVideoUrl) {
+        URL.revokeObjectURL(recordedVideoUrl);
+        setRecordedVideoUrl(null);
+      }
+      startCountdown();
     }
   };
 
   const handleSubmit = async () => {
-    if (isLoadingEvaluation || isRecording || isTranscribing) return;
+    if (isLoadingEvaluation || isRecording || isTranscribing || countdown !== null) return;
 
     if (!answer.trim() && !recordedVideoUrl) {
         toast({title: "No Answer Content", description: "Please record your answer."});
@@ -356,7 +396,7 @@ export default function InterviewArea({
   const timeFeedback = getTimeManagementFeedback();
 
   const recordButtonDisabled = hasCameraPermission === false || isLoadingEvaluation || isLoadingNewQuestion || isTranscribing;
-  const submitButtonDisabled = (!answer.trim() && !recordedVideoUrl) || isLoadingEvaluation || isLoadingNewQuestion || isRecording || isTranscribing;
+  const submitButtonDisabled = (!answer.trim() && !recordedVideoUrl) || isLoadingEvaluation || isLoadingNewQuestion || isRecording || isTranscribing || countdown !== null;
 
   return (
     <TooltipProvider>
@@ -400,8 +440,13 @@ export default function InterviewArea({
           )}
 
           {hasCameraPermission && (
-            <div className={`mb-4 rounded-md overflow-hidden shadow-inner border bg-black ${!showVideoPreview ? 'hidden' : ''}`}>
+            <div className={`mb-4 rounded-md overflow-hidden shadow-inner border bg-black relative ${!showVideoPreview ? 'hidden' : ''}`}>
               <video ref={videoPreviewRef} className="w-full aspect-video" autoPlay muted playsInline />
+                {countdown !== null && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50">
+                        <span className="text-8xl font-bold text-white" style={{textShadow: '0 0 10px rgba(0,0,0,0.7)'}}>{countdown}</span>
+                    </div>
+                )}
             </div>
           )}
 
@@ -416,7 +461,7 @@ export default function InterviewArea({
               </div>
           )}
 
-          <div className={`min-h-[50px] p-3 rounded-md border bg-muted text-muted-foreground ${answer.trim() ? 'text-foreground' : ''} hidden`}
+          <div className={`min-h-[50px] p-3 rounded-md border bg-muted text-muted-foreground ${answer.trim() ? 'text-foreground' : ''}`}
             aria-live="polite"
           >
             {answer.trim() ? answer : "Transcribed text will appear here..."}
@@ -459,15 +504,15 @@ export default function InterviewArea({
               <Tooltip>
                 <TooltipTrigger asChild>
                    <Button
-                    onClick={toggleRecording}
-                    variant={isRecording ? "destructive" : "outline"}
+                    onClick={handleRecordButtonClick}
+                    variant={isRecording || countdown !== null ? "destructive" : "outline"}
                     size="lg"
                     disabled={recordButtonDisabled}
-                    aria-label={isRecording ? "Stop video recording" : "Start video recording answer"}
+                    aria-label={isRecording ? "Stop video recording" : (countdown !== null ? "Cancel recording" : "Start video recording answer")}
                     className={`${isRecording ? "bg-red-500 hover:bg-red-600 text-white" : ""} py-3 px-6 rounded-full gap-2`}
                   >
-                    {isRecording ? <VideoOff size={24} /> : <Video size={24} />}
-                    <span className="ml-0 text-base">{isRecording ? "Stop Recording" : (isTranscribing ? "Processing..." : "Record Video")}</span>
+                    {isRecording ? <VideoOff size={24} /> : (countdown !== null ? <X size={24} /> : <Video size={24} />)}
+                    <span className="ml-0 text-base">{isRecording ? "Stop Recording" : (countdown !== null ? "Cancel" : (isTranscribing ? "Processing..." : "Record Video"))}</span>
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -530,6 +575,12 @@ export default function InterviewArea({
                     </DropdownMenu>
                 </div>
                 <video src={recordedVideoUrl} controls className="w-full rounded-md shadow-md aspect-video bg-black"></video>
+                {answer && (
+                  <div className="mt-4">
+                    <h4 className="text-md font-semibold mb-1">Transcript</h4>
+                    <p className="text-sm text-muted-foreground bg-muted p-3 rounded-md border whitespace-pre-wrap">{answer}</p>
+                  </div>
+                )}
                 <Alert variant="default" className="mt-3 bg-blue-50 border-blue-200 text-blue-800">
                     <Info className="h-4 w-4 !text-blue-800" />
                     <AlertTitle>Video is Temporary</AlertTitle>
@@ -566,9 +617,9 @@ export default function InterviewArea({
                 <Alert variant="default" className="mt-3">
                   <AlertCircle className="h-4 w-4" />
                   <AlertTitle>Note on Text Analysis</AlertTitle>
-                  <AlertDescription>
+                  <Aler_description>
                     No text was transcribed from your video recording. Text-based AI analysis (clarity, textual confidence, filler words, speaking pace) might be limited or based on an empty input. Your video and its duration were still processed.
-                  </AlertDescription>
+                  </Aler_description>
                 </Alert>
               )}
 
@@ -621,5 +672,3 @@ export default function InterviewArea({
     </TooltipProvider>
   );
 }
-
-    

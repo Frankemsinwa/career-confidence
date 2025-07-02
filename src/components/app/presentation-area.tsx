@@ -23,6 +23,7 @@ import {
   Download,
   FileText,
   Info,
+  X,
 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from '@/hooks/use-toast';
@@ -71,6 +72,9 @@ export default function PresentationArea({
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordingStartTimeRef = useRef<number | null>(null);
+
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
   
   const targetSeconds = timeFrameToSeconds(settings.timeFrame);
   const { toast } = useToast();
@@ -97,6 +101,7 @@ export default function PresentationArea({
       // Cleanup: stop camera tracks, clear timer, and revoke any video URLs
       videoStreamRef.current?.getTracks().forEach(track => track.stop());
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
       if (recordedVideoUrl) {
         URL.revokeObjectURL(recordedVideoUrl);
       }
@@ -121,26 +126,35 @@ export default function PresentationArea({
     return duration;
   };
 
-  const toggleRecording = async () => {
-    if (isTranscribing || hasCameraPermission === false) return;
-    if (!videoStreamRef.current) {
-        toast({ title: "Camera not ready", variant: "destructive" });
-        return;
-    }
+  const startCountdown = () => {
+      setCountdown(3);
+      countdownIntervalRef.current = setInterval(() => {
+        setCountdown(prev => {
+            if (prev === null || prev <= 1) {
+                clearInterval(countdownIntervalRef.current!);
+                countdownIntervalRef.current = null;
+                startRecording();
+                return null;
+            }
+            return prev - 1;
+        });
+      }, 1000);
+  };
 
-    if (isRecording) {
-      mediaRecorderRef.current?.stop();
-    } else {
-      setTranscript('');
-      // Revoke old URL before creating a new one
-      if (recordedVideoUrl) URL.revokeObjectURL(recordedVideoUrl);
-      setRecordedVideoUrl(null);
+  const cancelCountdown = () => {
+      if (countdownIntervalRef.current) {
+          clearInterval(countdownIntervalRef.current);
+          countdownIntervalRef.current = null;
+      }
+      setCountdown(null);
+  }
 
+  const startRecording = () => {
       mediaChunksRef.current = [];
 
       const mimeType = 'video/webm';
       chosenMimeTypeRef.current = mimeType;
-      mediaRecorderRef.current = new MediaRecorder(videoStreamRef.current, { mimeType });
+      mediaRecorderRef.current = new MediaRecorder(videoStreamRef.current!, { mimeType });
 
       mediaRecorderRef.current.ondataavailable = (event) => {
         if (event.data.size > 0) mediaChunksRef.current.push(event.data);
@@ -185,6 +199,27 @@ export default function PresentationArea({
         }
       };
       mediaRecorderRef.current.start();
+  }
+
+  const handleRecordButtonClick = async () => {
+    if (countdown !== null) {
+        cancelCountdown();
+        return;
+    }
+    if (isTranscribing || hasCameraPermission === false) return;
+    if (!videoStreamRef.current) {
+        toast({ title: "Camera not ready", variant: "destructive" });
+        return;
+    }
+
+    if (isRecording) {
+      mediaRecorderRef.current?.stop();
+    } else {
+      setTranscript('');
+      // Revoke old URL before creating a new one
+      if (recordedVideoUrl) URL.revokeObjectURL(recordedVideoUrl);
+      setRecordedVideoUrl(null);
+      startCountdown();
     }
   };
 
@@ -248,21 +283,27 @@ export default function PresentationArea({
 
         <CardContent>
           {hasCameraPermission === false && <Alert variant="destructive"><AlertTitle>Camera/Mic Required</AlertTitle><AlertDescription>Please enable device permissions to continue.</AlertDescription></Alert>}
-          <div className="mb-4 rounded-md overflow-hidden shadow-inner border bg-black">
+          <div className="mb-4 rounded-md overflow-hidden shadow-inner border bg-black relative">
             <video ref={videoPreviewRef} className="w-full aspect-video" autoPlay muted playsInline />
+             {countdown !== null && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50">
+                    <span className="text-8xl font-bold text-white" style={{textShadow: '0 0 10px rgba(0,0,0,0.7)'}}>{countdown}</span>
+                </div>
+            )}
           </div>
           <div className="flex justify-center">
             <Button
-                onClick={toggleRecording}
-                variant={isRecording ? "destructive" : "default"}
+                onClick={handleRecordButtonClick}
+                variant={isRecording || countdown !== null ? "destructive" : "default"}
                 size="lg"
                 disabled={recordButtonDisabled}
                 className="rounded-full w-48 h-16 text-lg gap-2"
             >
                 {isRecording && <VideoOff size={24}/>}
-                {!isRecording && !isTranscribing && <Video size={24}/>}
+                {!isRecording && !isTranscribing && countdown === null && <Video size={24}/>}
                 {isTranscribing && <Loader2 size={24} className="animate-spin"/>}
-                {isRecording ? "Stop" : isTranscribing ? "Processing..." : "Record"}
+                {countdown !== null && <X size={24}/>}
+                {isRecording ? "Stop" : isTranscribing ? "Processing..." : (countdown !== null ? "Cancel" : "Record")}
             </Button>
           </div>
         </CardContent>
@@ -300,6 +341,12 @@ export default function PresentationArea({
                         </DropdownMenu>
                     </div>
                     <video src={recordedVideoUrl} controls className="w-full rounded-md shadow-md aspect-video bg-black"></video>
+                    {transcript && (
+                        <div className="mt-4">
+                            <h4 className="text-md font-semibold mb-1">Transcript</h4>
+                            <p className="text-sm text-muted-foreground bg-muted p-3 rounded-md border whitespace-pre-wrap">{transcript}</p>
+                        </div>
+                    )}
                      <Alert variant="default" className="mt-3 bg-blue-50 border-blue-200 text-blue-800">
                         <Info className="h-4 w-4 !text-blue-800" />
                         <AlertTitle>Video is Temporary</AlertTitle>
@@ -343,5 +390,3 @@ const FeedbackCard = ({ icon, title, content }: { icon: React.ReactNode, title: 
         <p className="text-muted-foreground text-sm">{content}</p>
     </div>
 );
-
-    
