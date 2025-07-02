@@ -117,37 +117,17 @@ export default function InterviewArea({
   // Effect to manage video preview element
   useEffect(() => {
     const videoElement = videoPreviewRef.current;
-
     if (hasCameraPermission && showVideoPreview && videoElement && videoStreamRef.current) {
-      console.log("Setting up video preview. Stream available, preview shown. Video Element:", videoElement);
       if (videoElement.srcObject !== videoStreamRef.current) {
         videoElement.srcObject = videoStreamRef.current;
-        console.log("Assigned stream to videoElement.srcObject");
       }
-
-      const handleMetadataLoaded = () => {
-        console.log("Video metadata loaded. ReadyState:", videoElement?.readyState, "Attempting to play...");
-        videoElement.play()
-          .then(() => console.log("Video preview play() promise resolved."))
-          .catch(error => console.warn("Video preview play() promise rejected:", error));
-      };
-
-      videoElement.addEventListener('loadedmetadata', handleMetadataLoaded);
-      if (videoElement.readyState >= videoElement.HAVE_METADATA) {
-         handleMetadataLoaded();
-      }
-
-      return () => {
-        videoElement.removeEventListener('loadedmetadata', handleMetadataLoaded);
-        if (videoElement.srcObject) {
-          videoElement.pause();
-        }
-      };
-    } else if (!showVideoPreview && videoElement && videoElement.srcObject) {
-        console.log("Video preview hidden, pausing video.");
-        videoElement.pause();
+      videoElement.play().catch(error => {
+        console.warn("Video preview auto-play was prevented:", error);
+      });
+    } else if (videoElement && videoElement.srcObject) {
+      videoElement.pause();
     }
-  }, [hasCameraPermission, showVideoPreview]);
+  }, [hasCameraPermission, showVideoPreview, videoStreamRef.current]);
 
 
   useEffect(() => {

@@ -42,7 +42,7 @@ const formSchema = z.object({
         message: `Number of questions must be one of: ${questionCountOptions.join(', ')}.`,
       }
     ) as z.ZodType<QuestionCount>,
-  customQuestion: z.string().min(10, { message: 'Your question must be at least 10 characters long.' }).optional(),
+  customQuestion: z.string().min(10, { message: 'Your question must be at least 10 characters long.' }).optional().or(z.literal('')),
 });
 
 type InterviewSetupFormProps = {

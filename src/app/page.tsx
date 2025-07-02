@@ -284,7 +284,7 @@ export default function Home() {
     <div className="container mx-auto px-4 py-8 min-h-[calc(100vh-var(--header-height,80px))]">
       {!isInterviewActive ? (
         // If interview is not active, show setup or completion card
-        (currentSettings === null || generatedQuestions.length === 0 || currentQuestionIndex === 0 && !currentEvaluation) ? 
+        (currentSettings === null || generatedQuestions.length === 0 || (currentQuestionIndex === 0 && !currentEvaluation)) ? 
           (<InterviewSetupForm 
             onSubmit={handleStartInterview} 
             isLoading={isLoadingSetup}
