@@ -1,16 +1,42 @@
+
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
-import { Loader2, Send, SkipForward, RefreshCcw, Lightbulb, CheckCircle, Video, VideoOff, AlertCircle, Eye, EyeOff, Award, BarChartHorizontal, Target } from 'lucide-react';
+import {
+  Loader2,
+  Send,
+  SkipForward,
+  RefreshCcw,
+  Lightbulb,
+  CheckCircle,
+  Video,
+  VideoOff,
+  AlertCircle,
+  Eye,
+  EyeOff,
+  Award,
+  BarChartHorizontal,
+  Target,
+  MoreVertical,
+  Download,
+  FileText,
+  Info,
+} from 'lucide-react';
 import type { EvaluateAnswerOutput } from '@/ai/flows/evaluate-answer';
 import type { AnalyzeCommunicationOutput } from '@/ai/flows/analyze-communication-flow';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 type InterviewAreaProps = {
   question: string;
@@ -61,6 +87,7 @@ export default function InterviewArea({
   const [isTranscribing, setIsTranscribing] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaChunksRef = useRef<Blob[]>([]);
+  const chosenMimeTypeRef = useRef<string>('video/webm');
 
   const [recordingStartTime, setRecordingStartTime] = useState<number | null>(null);
   const [recordingDurationSeconds, setRecordingDurationSeconds] = useState<number>(0);
@@ -127,7 +154,7 @@ export default function InterviewArea({
     } else if (videoElement && videoElement.srcObject) {
       videoElement.pause();
     }
-  }, [hasCameraPermission, showVideoPreview, videoStreamRef.current]);
+  }, [hasCameraPermission, showVideoPreview]);
 
 
   useEffect(() => {
@@ -199,6 +226,7 @@ export default function InterviewArea({
             break;
           }
         }
+        chosenMimeTypeRef.current = chosenMimeType;
         
         mediaRecorderRef.current = new MediaRecorder(videoStreamRef.current, { mimeType: chosenMimeType });
 
@@ -286,6 +314,33 @@ export default function InterviewArea({
     await onGetModelAnswer();
     setShowModelAnswer(true);
   };
+  
+  const handleDownloadVideo = () => {
+    if (!recordedVideoUrl) return;
+    const a = document.createElement('a');
+    a.href = recordedVideoUrl;
+    const extension = chosenMimeTypeRef.current.includes('mp4') ? 'mp4' : 'webm';
+    a.download = `career-confidence-interview-${new Date().toISOString()}.${extension}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    toast({ title: 'Video Download Started' });
+  };
+
+  const handleDownloadTranscript = () => {
+    if (!answer.trim()) return;
+    const blob = new Blob([answer], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `career-confidence-transcript-${new Date().toISOString()}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast({ title: 'Transcript Download Started' });
+  };
+
 
   const progressPercentage = (questionNumber / totalQuestions) * 100;
 
@@ -452,9 +507,36 @@ export default function InterviewArea({
           </CardHeader>
           <CardContent className="space-y-4">
             {recordedVideoUrl && (
-              <div className="mb-4">
-                <h3 className="text-lg font-semibold mb-2">Your Recorded Answer:</h3>
+              <div>
+                <div className="flex justify-between items-center mb-2">
+                    <h3 className="text-lg font-semibold">Your Recorded Answer</h3>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8">
+                          <MoreVertical className="h-4 w-4" />
+                          <span className="sr-only">More options</span>
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={handleDownloadVideo}>
+                          <Download className="mr-2 h-4 w-4" />
+                          <span>Download Video</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={handleDownloadTranscript} disabled={!answer.trim()}>
+                          <FileText className="mr-2 h-4 w-4" />
+                          <span>Download Transcript</span>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                </div>
                 <video src={recordedVideoUrl} controls className="w-full rounded-md shadow-md aspect-video bg-black"></video>
+                <Alert variant="default" className="mt-3 bg-blue-50 border-blue-200 text-blue-800">
+                    <Info className="h-4 w-4 !text-blue-800" />
+                    <AlertTitle>Video is Temporary</AlertTitle>
+                    <AlertDescription>
+                        This video is not saved permanently. Download it now if you wish to keep a copy.
+                    </AlertDescription>
+                </Alert>
               </div>
             )}
             <div>
@@ -539,3 +621,5 @@ export default function InterviewArea({
     </TooltipProvider>
   );
 }
+
+    

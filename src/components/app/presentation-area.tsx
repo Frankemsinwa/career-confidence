@@ -1,13 +1,39 @@
+
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Loader2, Send, Video, VideoOff, CheckCircle, AlertCircle, BarChartHorizontal, Clock, Users, BookOpen, ThumbsUp, ThumbsDown, MessageSquare, BrainCircuit } from 'lucide-react';
+import {
+  Loader2,
+  Send,
+  Video,
+  VideoOff,
+  CheckCircle,
+  AlertCircle,
+  BarChartHorizontal,
+  Clock,
+  Users,
+  BookOpen,
+  ThumbsUp,
+  ThumbsDown,
+  MessageSquare,
+  BrainCircuit,
+  MoreVertical,
+  Download,
+  FileText,
+  Info,
+} from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from '@/hooks/use-toast';
 import type { PresentationSettings } from '@/lib/types';
 import type { AnalyzePresentationOutput } from '@/ai/flows/analyze-presentation-flow';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 type PresentationAreaProps = {
   settings: PresentationSettings;
@@ -37,6 +63,7 @@ export default function PresentationArea({
   const mediaChunksRef = useRef<Blob[]>([]);
   const videoStreamRef = useRef<MediaStream | null>(null);
   const videoPreviewRef = useRef<HTMLVideoElement>(null);
+  const chosenMimeTypeRef = useRef<string>('video/webm');
 
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
   const [recordedVideoUrl, setRecordedVideoUrl] = useState<string | null>(null);
@@ -112,6 +139,7 @@ export default function PresentationArea({
       mediaChunksRef.current = [];
 
       const mimeType = 'video/webm';
+      chosenMimeTypeRef.current = mimeType;
       mediaRecorderRef.current = new MediaRecorder(videoStreamRef.current, { mimeType });
 
       mediaRecorderRef.current.ondataavailable = (event) => {
@@ -159,6 +187,33 @@ export default function PresentationArea({
       mediaRecorderRef.current.start();
     }
   };
+
+  const handleDownloadVideo = () => {
+    if (!recordedVideoUrl) return;
+    const a = document.createElement('a');
+    a.href = recordedVideoUrl;
+    const extension = chosenMimeTypeRef.current.includes('mp4') ? 'mp4' : 'webm';
+    a.download = `career-confidence-presentation-${new Date().toISOString()}.${extension}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    toast({ title: 'Video Download Started' });
+  };
+
+  const handleDownloadTranscript = () => {
+    if (!transcript.trim()) return;
+    const blob = new Blob([transcript], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `career-confidence-transcript-${new Date().toISOString()}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast({ title: 'Transcript Download Started' });
+  };
+
   
   const timerColorClass = () => {
       if (!targetSeconds) return 'text-primary';
@@ -223,8 +278,35 @@ export default function PresentationArea({
             <CardContent className="space-y-4">
                 {recordedVideoUrl && (
                   <div>
-                    <h3 className="text-lg font-semibold mb-2">Your Recorded Presentation:</h3>
+                     <div className="flex justify-between items-center mb-2">
+                        <h3 className="text-lg font-semibold">Your Recorded Presentation:</h3>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8">
+                              <MoreVertical className="h-4 w-4" />
+                               <span className="sr-only">More options</span>
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={handleDownloadVideo}>
+                              <Download className="mr-2 h-4 w-4" />
+                              <span>Download Video</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={handleDownloadTranscript} disabled={!transcript.trim()}>
+                              <FileText className="mr-2 h-4 w-4" />
+                              <span>Download Transcript</span>
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                    </div>
                     <video src={recordedVideoUrl} controls className="w-full rounded-md shadow-md aspect-video bg-black"></video>
+                     <Alert variant="default" className="mt-3 bg-blue-50 border-blue-200 text-blue-800">
+                        <Info className="h-4 w-4 !text-blue-800" />
+                        <AlertTitle>Video is Temporary</AlertTitle>
+                        <AlertDescription>
+                            This video is not saved permanently. Download it now if you wish to keep a copy.
+                        </AlertDescription>
+                    </Alert>
                   </div>
                 )}
                 
@@ -261,3 +343,5 @@ const FeedbackCard = ({ icon, title, content }: { icon: React.ReactNode, title: 
         <p className="text-muted-foreground text-sm">{content}</p>
     </div>
 );
+
+    
