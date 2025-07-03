@@ -88,7 +88,7 @@ export default function InterviewArea({
   // Shared state
   const [showEvaluation, setShowEvaluation] = useState(false);
   const [showModelAnswer, setShowModelAnswer] = useState(false);
-  const [practiceMode, setPracticeMode] = useState<'video' | 'audio'>('video');
+  const [practiceMode, setPracticeMode] = useState<'video' | 'audio'>('audio');
   const { toast } = useToast();
 
   // Video Mode State
