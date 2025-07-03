@@ -114,7 +114,7 @@ export default function InterviewArea({
   const [isListening, setIsListening] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState('');
   const [finalTranscript, setFinalTranscript] = useState('');
-  const [audioRecordingStartTime, setAudioRecordingStartTime] = useState<number | null>(null);
+  const audioRecordingStartTimeRef = useRef<number | null>(null);
   const [audioRecordingDuration, setAudioRecordingDuration] = useState(0);
 
   // Effect to get camera/mic permissions
@@ -181,17 +181,17 @@ export default function InterviewArea({
 
     recognition.onstart = () => {
         setIsListening(true);
-        setAudioRecordingStartTime(Date.now());
+        audioRecordingStartTimeRef.current = Date.now();
         toast({ title: 'Listening...', description: 'Start speaking now.' });
     };
 
     recognition.onend = () => {
         setIsListening(false);
-        if (audioRecordingStartTime) {
-            const duration = Math.round((Date.now() - audioRecordingStartTime) / 1000);
+        if (audioRecordingStartTimeRef.current) {
+            const duration = Math.round((Date.now() - audioRecordingStartTimeRef.current) / 1000);
             setAudioRecordingDuration(duration);
         }
-        setAudioRecordingStartTime(null);
+        audioRecordingStartTimeRef.current = null;
     };
 
     recognition.onerror = (event) => {
@@ -201,10 +201,12 @@ export default function InterviewArea({
     };
 
     return () => {
-        recognition.stop();
+        if(recognitionRef.current) {
+          recognitionRef.current.stop();
+        }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [audioRecordingStartTime]);
+  }, []);
 
   // Effect to manage video preview element
   useEffect(() => {
@@ -239,7 +241,7 @@ export default function InterviewArea({
     setLiveTranscript('');
     setFinalTranscript('');
     setAudioRecordingDuration(0);
-    setAudioRecordingStartTime(null);
+    audioRecordingStartTimeRef.current = null;
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [question]);
@@ -360,7 +362,7 @@ export default function InterviewArea({
       setLiveTranscript('');
       setFinalTranscript('');
       setAudioRecordingDuration(0);
-      setAudioRecordingStartTime(null);
+      audioRecordingStartTimeRef.current = null;
       recognitionRef.current.start();
     }
   };
