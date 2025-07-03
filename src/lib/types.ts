@@ -54,4 +54,5 @@ export interface StoredPresentationAttempt {
     analysis: AnalyzePresentationOutput;
     actualDurationSeconds: number;
     recordedVideoUrl?: string;
+    practiceMode: 'video' | 'audio';
 }

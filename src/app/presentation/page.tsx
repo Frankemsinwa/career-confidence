@@ -52,16 +52,18 @@ export default function PresentationPage() {
         analysis: result,
         actualDurationSeconds: duration,
         recordedVideoUrl: recordedVideoUrl ?? undefined,
+        practiceMode: recordedVideoUrl ? 'video' : 'audio',
       };
       setProgress(prev => [...prev, newAttempt]);
 
     } catch (error) {
-      console.error('Error analyzing presentation:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Analysis Failed',
-        description: 'There was an error analyzing your presentation. Please try again.',
-      });
+       console.error('Error analyzing presentation:', error);
+       const message = error instanceof Error ? error.message : "An unknown error occurred.";
+       toast({
+         variant: 'destructive',
+         title: 'Analysis Failed',
+         description: `There was an error analyzing your presentation: ${message}`,
+       });
     } finally {
       setIsLoading(false);
     }
