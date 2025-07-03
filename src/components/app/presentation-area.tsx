@@ -134,16 +134,11 @@ export default function PresentationArea({
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         videoStreamRef.current = stream;
-        if (videoPreviewRef.current) {
-          videoPreviewRef.current.srcObject = stream;
-        }
         setHasCameraPermission(true);
       } catch (error) {
         console.error("Error accessing camera/mic:", error);
         setHasCameraPermission(false);
-        if (practiceMode === 'video') {
-            toast({ variant: 'destructive', title: 'Device Access Denied', description: 'Camera and mic are needed to record a video.' });
-        }
+        toast({ variant: 'destructive', title: 'Device Access Denied', description: 'Camera and mic are needed to record a video.' });
       }
     }
     getPermissions();
@@ -220,6 +215,18 @@ export default function PresentationArea({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [finalTranscript]);
+  
+  // Effect to manage video preview element
+  useEffect(() => {
+    const videoElement = videoPreviewRef.current;
+    if (practiceMode === 'video' && hasCameraPermission && videoElement && videoStreamRef.current) {
+      if (videoElement.srcObject !== videoStreamRef.current) {
+        videoElement.srcObject = videoStreamRef.current;
+      }
+      videoElement.play().catch(e => console.error("Error playing video preview:", e));
+    }
+  }, [practiceMode, hasCameraPermission]);
+
 
   useEffect(() => {
     // Reset state when analysis result is cleared (new session starts)
