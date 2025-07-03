@@ -9,20 +9,23 @@ import useLocalStorage from '@/hooks/use-local-storage';
 import { v4 as uuidv4 } from 'uuid';
 import { analyzePresentation } from '@/ai/flows/analyze-presentation-flow';
 import type { AnalyzePresentationOutput } from '@/ai/flows/analyze-presentation-flow';
+import { generatePresentationSuggestion } from '@/ai/flows/generate-presentation-suggestion';
 
 export default function PresentationPage() {
   const [settings, setSettings] = useState<PresentationSettings | null>(null);
   const [isPracticeActive, setIsPracticeActive] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [currentAnalysis, setCurrentAnalysis] = useState<AnalyzePresentationOutput | null>(null);
+  const [modelSuggestion, setModelSuggestion] = useState<string | null>(null);
+  const [isLoadingSuggestion, setIsLoadingSuggestion] = useState(false);
   
-  // Later, we can create a shared or generic progress tracker. For now, let's keep it separate.
   const [progress, setProgress] = useLocalStorage<StoredPresentationAttempt[]>('careerConfidencePresentationProgress', []);
   const { toast } = useToast();
 
   const handleStartPractice = (newSettings: PresentationSettings) => {
     setSettings(newSettings);
     setCurrentAnalysis(null);
+    setModelSuggestion(null);
     setIsPracticeActive(true);
     toast({ title: 'Practice Session Started!', description: 'Your presentation timer has begun.' });
   };
@@ -31,6 +34,7 @@ export default function PresentationPage() {
     if (!settings) return;
     setIsLoading(true);
     setCurrentAnalysis(null);
+    setModelSuggestion(null);
 
     try {
       const result = await analyzePresentation({
@@ -43,7 +47,6 @@ export default function PresentationPage() {
       setCurrentAnalysis(result);
       toast({ title: 'Analysis Complete!', description: 'Your feedback is ready.' });
 
-      // Save the attempt to local storage
       const newAttempt: StoredPresentationAttempt = {
         id: uuidv4(),
         timestamp: Date.now(),
@@ -69,15 +72,36 @@ export default function PresentationPage() {
     }
   };
 
+  const handleGetModelSuggestion = async () => {
+    if (!settings) return;
+    setIsLoadingSuggestion(true);
+    try {
+      const result = await generatePresentationSuggestion({
+        topic: settings.topic,
+        audience: settings.targetAudience,
+        timeFrame: settings.timeFrame,
+      });
+      setModelSuggestion(result.suggestion);
+      toast({ title: "Suggestion Ready!", description: "A model outline has been generated." });
+    } catch (error) {
+      console.error('Error generating suggestion:', error);
+      toast({ variant: 'destructive', title: 'Suggestion Failed', description: "Could not generate a model suggestion." });
+    } finally {
+      setIsLoadingSuggestion(false);
+    }
+  };
+
   const handleEndPractice = () => {
     setIsPracticeActive(false);
     setSettings(null);
     setCurrentAnalysis(null);
+    setModelSuggestion(null);
     toast({ title: 'Practice Session Ended', description: 'Great work! You can start a new session anytime.' });
   };
 
   const handleRetryPractice = () => {
     setCurrentAnalysis(null);
+    setModelSuggestion(null);
     toast({
       title: 'Ready for Another Take!',
       description: 'Your settings are the same. Start recording when you are ready.',
@@ -96,9 +120,11 @@ export default function PresentationPage() {
           onRetryPractice={handleRetryPractice}
           isLoading={isLoading}
           analysisResult={currentAnalysis}
+          onGetModelSuggestion={handleGetModelSuggestion}
+          isLoadingSuggestion={isLoadingSuggestion}
+          modelSuggestion={modelSuggestion}
         />
       ) : (
-        // Fallback in case state is inconsistent
         <PresentationSetupForm onSubmit={handleStartPractice} isLoading={isLoading} />
       )}
        {/* TODO: Add a ProgressTracker for presentations similar to the interview page */}

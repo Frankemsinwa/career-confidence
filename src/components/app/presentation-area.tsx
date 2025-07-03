@@ -26,6 +26,7 @@ import {
   MicOff,
   Clapperboard,
   RefreshCw,
+  Lightbulb,
 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from '@/hooks/use-toast';
@@ -40,6 +41,9 @@ type PresentationAreaProps = {
   onRetryPractice: () => void;
   isLoading: boolean;
   analysisResult: AnalyzePresentationOutput | null;
+  onGetModelSuggestion: () => Promise<void>;
+  isLoadingSuggestion: boolean;
+  modelSuggestion: string | null;
 };
 
 // Helper to get target seconds from timeFrame string
@@ -83,6 +87,9 @@ export default function PresentationArea({
   onRetryPractice,
   isLoading,
   analysisResult,
+  onGetModelSuggestion,
+  isLoadingSuggestion,
+  modelSuggestion,
 }: PresentationAreaProps) {
   // Shared state
   const [practiceMode, setPracticeMode] = useState<'video' | 'audio'>('audio');
@@ -212,7 +219,7 @@ export default function PresentationArea({
         }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [finalTranscript]); // Re-create if finalTranscript changes to allow appending
+  }, [finalTranscript]);
 
   useEffect(() => {
     // Reset state when analysis result is cleared (new session starts)
@@ -467,78 +474,103 @@ export default function PresentationArea({
       )}
 
       {analysisResult && !isLoading && !isTranscribing && (
-        <Card className="animate-in fade-in duration-500">
-            <CardHeader>
-              <div className="flex justify-between items-center">
-                <CardTitle className="text-2xl font-semibold text-primary flex items-center gap-2"><BrainCircuit size={24}/> Presentation Feedback</CardTitle>
-                <div className="flex items-center gap-2">
-                  <Button variant="outline" size="icon" onClick={handleDownloadVideo} disabled={!recordedVideoUrl} aria-label="Download Video">
-                    <Download className="h-5 w-5" />
-                  </Button>
-                  <Button variant="outline" size="icon" onClick={handleDownloadTranscript} disabled={!displayedTranscript} aria-label="Download Transcript">
-                    <FileText className="h-5 w-5" />
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-6">
-                {recordedVideoUrl && (
-                  <div className="rounded-lg overflow-hidden border shadow-md">
-                    <video src={recordedVideoUrl} controls className="w-full aspect-video bg-black"></video>
-                  </div>
-                )}
-                
-                <Card className="p-6 bg-secondary/30">
-                  <CardTitle className="text-lg mb-4">Feedback Summary</CardTitle>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
-                    <FeedbackMetricBar label="Structure &amp; Flow" score={analysisResult.structureScore} />
-                    <FeedbackMetricBar label="Clarity" score={analysisResult.clarityScore} />
-                    <FeedbackMetricBar label="Engagement" score={analysisResult.engagementScore} />
-                    <FeedbackMetricBar label="Time Management" score={analysisResult.timeManagementScore} />
-                    <FeedbackMetricBar label="Use of Filler Words" score={analysisResult.fillerWordsScore} />
-                     <div className="flex items-center justify-between pt-2">
-                        <p className="text-sm font-medium text-muted-foreground">Speaking Pace</p>
-                        <p className="text-sm font-bold">{analysisResult.speakingPaceWPM} WPM</p>
-                    </div>
-                  </div>
-                </Card>
-
-                <div className="space-y-4 pt-4">
-                    <CardTitle className="text-lg">Detailed Analysis</CardTitle>
-                    <FeedbackDetailCard icon={<Zap size={20}/>} title="Structure &amp; Flow" content={analysisResult.structureFeedback} />
-                    <FeedbackDetailCard icon={<MessageSquare size={20}/>} title="Clarity" content={analysisResult.clarityFeedback} />
-                    <FeedbackDetailCard icon={<ThumbsUp size={20}/>} title="Engagement" content={analysisResult.engagementFeedback} />
-                    <FeedbackDetailCard icon={<Clock size={20}/>} title="Pacing &amp; Time Management" content={`${analysisResult.paceFeedback} ${analysisResult.timeManagementFeedback}`} />
-                    {analysisResult.fillerWordsFound.length > 0 && <FeedbackDetailCard icon={<BookOpen size={20}/>} title="Filler Words" content={`The following filler words were detected: ${analysisResult.fillerWordsFound.join(', ')}.`} />}
-                </div>
-
-                {displayedTranscript && (
-                  <div className="mt-4">
-                    <div className="relative">
-                      <h4 className="text-md font-semibold mb-1">Your Transcript</h4>
-                      <p className="text-sm text-muted-foreground bg-muted p-3 pr-10 rounded-md border whitespace-pre-wrap">{displayedTranscript}</p>
-                      <Button variant="ghost" size="icon" className="absolute top-0 right-0" onClick={handleCopyTranscript}>
-                        {hasCopied ? <CopyCheck className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+        <>
+            <Card className="animate-in fade-in duration-500">
+                <CardHeader>
+                  <div className="flex justify-between items-center">
+                    <CardTitle className="text-2xl font-semibold text-primary flex items-center gap-2"><BrainCircuit size={24}/> Presentation Feedback</CardTitle>
+                    <div className="flex items-center gap-2">
+                      <Button variant="outline" size="icon" onClick={handleDownloadVideo} disabled={!recordedVideoUrl} aria-label="Download Video">
+                        <Download className="h-5 w-5" />
+                      </Button>
+                      <Button variant="outline" size="icon" onClick={handleDownloadTranscript} disabled={!displayedTranscript} aria-label="Download Transcript">
+                        <FileText className="h-5 w-5" />
                       </Button>
                     </div>
                   </div>
-                )}
-                <Alert variant="default" className="mt-3 bg-blue-50 border-blue-200 text-blue-800">
-                    <Info className="h-4 w-4 !text-blue-800" />
-                    <AlertTitle>Video is Temporary</AlertTitle>
-                    <AlertDescription>
-                        This video is not saved permanently. Download it now if you wish to keep a copy.
-                    </AlertDescription>
-                </Alert>
-            </CardContent>
-            <CardFooter className="flex justify-end gap-2">
-              <Button onClick={onRetryPractice} variant="outline" className="gap-2">
-                <RefreshCw size={16} />
-                Retry
-              </Button>
-              <Button onClick={onEndPractice}>End Practice &amp; Start New</Button>
-            </CardFooter>
-        </Card>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                    {recordedVideoUrl && (
+                      <div className="rounded-lg overflow-hidden border shadow-md">
+                        <video src={recordedVideoUrl} controls className="w-full aspect-video bg-black"></video>
+                      </div>
+                    )}
+                    
+                    <Card className="p-6 bg-secondary/30">
+                      <CardTitle className="text-lg mb-4">Feedback Summary</CardTitle>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
+                        <FeedbackMetricBar label="Structure &amp; Flow" score={analysisResult.structureScore} />
+                        <FeedbackMetricBar label="Clarity" score={analysisResult.clarityScore} />
+                        <FeedbackMetricBar label="Engagement" score={analysisResult.engagementScore} />
+                        <FeedbackMetricBar label="Time Management" score={analysisResult.timeManagementScore} />
+                        <FeedbackMetricBar label="Use of Filler Words" score={analysisResult.fillerWordsScore} />
+                         <div className="flex items-center justify-between pt-2">
+                            <p className="text-sm font-medium text-muted-foreground">Speaking Pace</p>
+                            <p className="text-sm font-bold">{analysisResult.speakingPaceWPM} WPM</p>
+                        </div>
+                      </div>
+                    </Card>
+
+                    <div className="space-y-4 pt-4">
+                        <CardTitle className="text-lg">Detailed Analysis</CardTitle>
+                        <FeedbackDetailCard icon={<Zap size={20}/>} title="Structure &amp; Flow" content={analysisResult.structureFeedback} />
+                        <FeedbackDetailCard icon={<MessageSquare size={20}/>} title="Clarity" content={analysisResult.clarityFeedback} />
+                        <FeedbackDetailCard icon={<ThumbsUp size={20}/>} title="Engagement" content={analysisResult.engagementFeedback} />
+                        <FeedbackDetailCard icon={<Clock size={20}/>} title="Pacing &amp; Time Management" content={`${analysisResult.paceFeedback} ${analysisResult.timeManagementFeedback}`} />
+                        {analysisResult.fillerWordsFound.length > 0 && <FeedbackDetailCard icon={<BookOpen size={20}/>} title="Filler Words" content={`The following filler words were detected: ${analysisResult.fillerWordsFound.join(', ')}.`} />}
+                    </div>
+
+                    {displayedTranscript && (
+                      <div className="mt-4">
+                        <div className="relative">
+                          <h4 className="text-md font-semibold mb-1">Your Transcript</h4>
+                          <p className="text-sm text-muted-foreground bg-muted p-3 pr-10 rounded-md border whitespace-pre-wrap">{displayedTranscript}</p>
+                          <Button variant="ghost" size="icon" className="absolute top-0 right-0" onClick={handleCopyTranscript}>
+                            {hasCopied ? <CopyCheck className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                    <Alert variant="default" className="mt-3 bg-blue-50 border-blue-200 text-blue-800">
+                        <Info className="h-4 w-4 !text-blue-800" />
+                        <AlertTitle>Video is Temporary</AlertTitle>
+                        <AlertDescription>
+                            This video is not saved permanently. Download it now if you wish to keep a copy.
+                        </AlertDescription>
+                    </Alert>
+                    {!modelSuggestion && (
+                        <div className="pt-4 mt-4 border-t">
+                            <Button onClick={onGetModelSuggestion} variant="outline" className="w-full sm:w-auto border-accent text-accent-foreground hover:bg-accent/10 mt-2 gap-1" disabled={isLoadingSuggestion}>
+                                {isLoadingSuggestion ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Lightbulb size={18} />}
+                                Show Model Suggestion
+                            </Button>
+                        </div>
+                    )}
+                </CardContent>
+                <CardFooter className="flex justify-end gap-2">
+                  <Button onClick={onRetryPractice} variant="outline" className="gap-2">
+                    <RefreshCw size={16} />
+                    Retry
+                  </Button>
+                  <Button onClick={onEndPractice}>End Practice &amp; Start New</Button>
+                </CardFooter>
+            </Card>
+
+            {modelSuggestion && (
+                <Card className="shadow-xl animate-in fade-in duration-500 mt-4">
+                    <CardHeader>
+                        <CardTitle className="text-xl font-semibold flex items-center text-indigo-600 gap-1">
+                            <BrainCircuit size={20} className="mr-1" />Model Outline Suggestion
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-muted-foreground bg-indigo-50 p-4 rounded-md border border-indigo-200 whitespace-pre-wrap">
+                          {modelSuggestion}
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
+        </>
       )}
     </div>
   );
