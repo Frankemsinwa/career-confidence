@@ -31,6 +31,7 @@ export interface StoredAttempt {
   communicationAnalysis?: AnalyzeCommunicationOutput;
   recordingDurationSeconds?: number; // Duration of video/audio input
   recordedVideoUrl?: string; // URL for the recorded video playback
+  practiceMode: 'video' | 'audio';
 }
 
 

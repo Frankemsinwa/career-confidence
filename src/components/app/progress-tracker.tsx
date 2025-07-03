@@ -7,7 +7,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { formatDistanceToNow } from 'date-fns';
-import { TrendingUp, Archive, Clock, MicVocal, BarChartHorizontal } from 'lucide-react';
+import { TrendingUp, Archive, Clock, MicVocal, BarChartHorizontal, Clapperboard, Mic } from 'lucide-react';
 
 type ProgressTrackerProps = {
   attempts: StoredAttempt[];
@@ -47,7 +47,13 @@ export default function ProgressTracker({ attempts }: ProgressTrackerProps) {
                       <p className="text-xs text-muted-foreground">{formatDistanceToNow(new Date(attempt.timestamp), { addSuffix: true })}</p>
                     </div>
                     <div className="flex items-center gap-2">
-                      {attempt.recordingDurationSeconds !== undefined && (
+                      {attempt.practiceMode === 'video' && (
+                        <Badge variant="outline" className="text-xs hidden sm:flex items-center gap-1"><Clapperboard size={12}/> Video</Badge>
+                      )}
+                      {attempt.practiceMode === 'audio' && (
+                        <Badge variant="outline" className="text-xs hidden sm:flex items-center gap-1"><Mic size={12}/> Audio</Badge>
+                      )}
+                      {attempt.recordingDurationSeconds !== undefined && attempt.recordingDurationSeconds > 0 && (
                         <Badge variant="outline" className="text-xs hidden sm:flex items-center gap-1">
                           <Clock size={12}/> {attempt.recordingDurationSeconds}s
                         </Badge>

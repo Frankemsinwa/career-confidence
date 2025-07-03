@@ -26,6 +26,8 @@ import {
   Info,
   Mic,
   X,
+  Clapperboard,
+  MicOff,
 } from 'lucide-react';
 import type { EvaluateAnswerOutput } from '@/ai/flows/evaluate-answer';
 import type { AnalyzeCommunicationOutput } from '@/ai/flows/analyze-communication-flow';
@@ -39,6 +41,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
 
 type InterviewAreaProps = {
   question: string;
@@ -81,112 +85,162 @@ export default function InterviewArea({
   isLastQuestion,
   isCustomQuestion,
 }: InterviewAreaProps) {
-  const [answer, setAnswer] = useState('');
+  // Shared state
   const [showEvaluation, setShowEvaluation] = useState(false);
   const [showModelAnswer, setShowModelAnswer] = useState(false);
+  const [practiceMode, setPracticeMode] = useState<'video' | 'audio'>('video');
+  const { toast } = useToast();
 
+  // Video Mode State
+  const [answer, setAnswer] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaChunksRef = useRef<Blob[]>([]);
   const chosenMimeTypeRef = useRef<string>('video/webm');
-
   const [recordingStartTime, setRecordingStartTime] = useState<number | null>(null);
   const [recordingDurationSeconds, setRecordingDurationSeconds] = useState<number>(0);
-
   const [recordedVideoUrl, setRecordedVideoUrl] = useState<string | null>(null);
   const videoPreviewRef = useRef<HTMLVideoElement>(null);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
   const videoStreamRef = useRef<MediaStream | null>(null);
   const [showVideoPreview, setShowVideoPreview] = useState(true);
-
   const [countdown, setCountdown] = useState<number | null>(null);
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  const { toast } = useToast();
+  // Audio Mode State (Web Speech API)
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const [isAudioSupported, setIsAudioSupported] = useState(true);
+  const [isListening, setIsListening] = useState(false);
+  const [liveTranscript, setLiveTranscript] = useState('');
+  const [finalTranscript, setFinalTranscript] = useState('');
+  const [audioRecordingStartTime, setAudioRecordingStartTime] = useState<number | null>(null);
+  const [audioRecordingDuration, setAudioRecordingDuration] = useState(0);
 
   // Effect to get camera/mic permissions
   useEffect(() => {
     const getPermissions = async () => {
-      if (videoStreamRef.current && videoStreamRef.current.active) {
-        console.log("User media stream already active and stored.");
-        if (hasCameraPermission !== true) setHasCameraPermission(true);
-        return;
-      }
-      console.log("Attempting to get user media (video & audio)...");
+      if (videoStreamRef.current && videoStreamRef.current.active) return;
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         videoStreamRef.current = stream;
         setHasCameraPermission(true);
-        console.log("User media stream obtained and stored in ref.");
       } catch (error) {
         console.error('Error accessing camera/microphone:', error);
         setHasCameraPermission(false);
-        toast({
-          variant: 'destructive',
-          title: 'Device Access Denied',
-          description: 'Please enable camera and microphone permissions in your browser settings to record video answers.',
-          duration: 7000,
-        });
+        if (practiceMode === 'video') {
+            toast({
+              variant: 'destructive',
+              title: 'Device Access Denied',
+              description: 'Please enable camera and microphone permissions in your browser settings to record video answers.',
+              duration: 7000,
+            });
+        }
       }
     };
     getPermissions();
 
     return () => {
       if (videoStreamRef.current) {
-        console.log("Cleaning up media stream: Stopping all tracks on component unmount or before re-acquiring.");
         videoStreamRef.current.getTracks().forEach(track => track.stop());
         videoStreamRef.current = null;
       }
-      if (recordedVideoUrl) {
-        console.log("Cleaning up: Revoking recordedVideoUrl object URL.");
-        URL.revokeObjectURL(recordedVideoUrl);
-      }
-      if (countdownIntervalRef.current) {
-        clearInterval(countdownIntervalRef.current);
-      }
+      if (recordedVideoUrl) URL.revokeObjectURL(recordedVideoUrl);
+      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Effect for Web Speech API setup
+  useEffect(() => {
+    const SpeechRecognition = window.SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setIsAudioSupported(false);
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+    recognitionRef.current = recognition;
+
+    recognition.onresult = (event) => {
+        let final = '';
+        let interim = '';
+        for (const result of event.results) {
+            if (result.isFinal) {
+                final += result[0].transcript;
+            } else {
+                interim += result[0].transcript;
+            }
+        }
+        setFinalTranscript(final);
+        setLiveTranscript(final + interim);
+    };
+
+    recognition.onstart = () => {
+        setIsListening(true);
+        setAudioRecordingStartTime(Date.now());
+        toast({ title: 'Listening...', description: 'Start speaking now.' });
+    };
+
+    recognition.onend = () => {
+        setIsListening(false);
+        if (audioRecordingStartTime) {
+            const duration = Math.round((Date.now() - audioRecordingStartTime) / 1000);
+            setAudioRecordingDuration(duration);
+        }
+        setAudioRecordingStartTime(null);
+    };
+
+    recognition.onerror = (event) => {
+        console.error('Speech recognition error', event.error);
+        toast({ variant: 'destructive', title: 'Recognition Error', description: `An error occurred: ${event.error}. Try again or use Video Mode.` });
+        setIsListening(false);
+    };
+
+    return () => {
+        recognition.stop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [audioRecordingStartTime]);
 
   // Effect to manage video preview element
   useEffect(() => {
     const videoElement = videoPreviewRef.current;
     if (hasCameraPermission && showVideoPreview && videoElement && videoStreamRef.current) {
-      if (videoElement.srcObject !== videoStreamRef.current) {
-        videoElement.srcObject = videoStreamRef.current;
-      }
-      videoElement.play().catch(error => {
-        console.warn("Video preview auto-play was prevented:", error);
-      });
+      if (videoElement.srcObject !== videoStreamRef.current) videoElement.srcObject = videoStreamRef.current;
+      videoElement.play().catch(error => console.warn("Video preview auto-play was prevented:", error));
     } else if (videoElement && videoElement.srcObject) {
       videoElement.pause();
     }
   }, [hasCameraPermission, showVideoPreview]);
 
-
+  // Effect to reset state when the question changes
   useEffect(() => {
-    // This effect resets state when the question changes
-    setAnswer('');
+    // Shared resets
     setShowEvaluation(false);
     setShowModelAnswer(false);
     cancelCountdown();
 
-    setRecordedVideoUrl(prevUrl => {
-      if (prevUrl) {
-        URL.revokeObjectURL(prevUrl);
-      }
-      return null;
-    });
-
-    if (isRecording && mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-      mediaRecorderRef.current.stop();
-    }
-    
+    // Video resets
+    setAnswer('');
+    setRecordedVideoUrl(prevUrl => { if (prevUrl) URL.revokeObjectURL(prevUrl); return null; });
+    if (isRecording && mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
     setIsTranscribing(false);
     setRecordingStartTime(null);
     setRecordingDurationSeconds(0);
     mediaChunksRef.current = [];
+    
+    // Audio resets
+    if (isListening) recognitionRef.current?.stop();
+    setIsListening(false);
+    setLiveTranscript('');
+    setFinalTranscript('');
+    setAudioRecordingDuration(0);
+    setAudioRecordingStartTime(null);
+
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [question]);
 
@@ -213,24 +267,10 @@ export default function InterviewArea({
       setCountdown(null);
   };
 
-
   const startRecording = async () => {
      try {
-        const mimeTypeOptions = [
-          'video/webm;codecs=vp9,opus',
-          'video/webm;codecs=vp8,opus',
-          'video/webm;codecs=h264,opus',
-          'video/mp4;codecs=h264,aac',
-          'video/webm',
-        ];
-
-        let chosenMimeType = 'video/webm';
-        for (const type of mimeTypeOptions) {
-          if (MediaRecorder.isTypeSupported(type)) {
-            chosenMimeType = type;
-            break;
-          }
-        }
+        const mimeTypeOptions = ['video/webm;codecs=vp9,opus', 'video/webm'];
+        let chosenMimeType = mimeTypeOptions.find(type => MediaRecorder.isTypeSupported(type)) || 'video/webm';
         chosenMimeTypeRef.current = chosenMimeType;
         
         mediaRecorderRef.current = new MediaRecorder(videoStreamRef.current!, { mimeType: chosenMimeType });
@@ -249,10 +289,7 @@ export default function InterviewArea({
           setIsRecording(false);
           setIsTranscribing(true);
           toast({ title: "Recording Stopped", description: "Processing your answer..." });
-
-          if (recordingStartTime) {
-            setRecordingDurationSeconds(Math.round((Date.now() - recordingStartTime) / 1000));
-          }
+          if (recordingStartTime) setRecordingDurationSeconds(Math.round((Date.now() - recordingStartTime) / 1000));
           setRecordingStartTime(null);
 
           if (mediaChunksRef.current.length === 0) {
@@ -265,20 +302,14 @@ export default function InterviewArea({
           setRecordedVideoUrl(URL.createObjectURL(mediaBlob));
           
           const formData = new FormData();
-          const fileExtension = chosenMimeType.includes('mp4') ? 'mp4' : 'webm';
-          formData.append('audio', mediaBlob, `recording.${fileExtension}`);
+          formData.append('audio', mediaBlob, `recording.webm`);
 
           try {
-            const response = await fetch('/api/transcribe', {
-              method: 'POST',
-              body: formData,
-            });
-
+            const response = await fetch('/api/transcribe', { method: 'POST', body: formData });
             if (!response.ok) {
               const errorData = await response.json().catch(() => ({ error: "Unknown server error" }));
               throw new Error(errorData.error || `Server error: ${response.status}`);
             }
-
             const result = await response.json();
             setAnswer(result.transcript);
             toast({ title: "Transcription Complete!", description: "Your answer is ready to submit."});
@@ -299,105 +330,99 @@ export default function InterviewArea({
       }
   }
 
-
   const handleRecordButtonClick = async () => {
-    if (countdown !== null) {
-      cancelCountdown();
-      return;
-    }
-    if (isTranscribing) {
-      toast({ title: "Busy", description: "Please wait for transcription to complete." });
-      return;
-    }
-    if (hasCameraPermission === false) {
-      toast({ title: "Permissions Required", description: "Camera and microphone access is needed to record.", variant: "destructive" });
-      return;
-    }
-    if (!videoStreamRef.current || !videoStreamRef.current.active) {
-       toast({ title: "Error", description: "Camera stream not available or inactive. Try refreshing or re-allowing permissions.", variant: "destructive" });
-       setHasCameraPermission(null);
-      return;
-    }
-
+    if (countdown !== null) { cancelCountdown(); return; }
+    if (isTranscribing) { toast({ title: "Busy", description: "Please wait for transcription to complete." }); return; }
+    if (hasCameraPermission === false) { toast({ title: "Permissions Required", description: "Camera and microphone access is needed to record.", variant: "destructive" }); return; }
+    if (!videoStreamRef.current || !videoStreamRef.current.active) { toast({ title: "Error", description: "Camera stream not available or inactive. Try refreshing.", variant: "destructive" }); setHasCameraPermission(null); return; }
     if (isRecording) {
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-        mediaRecorderRef.current.stop();
-      }
+      if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
     } else {
       setAnswer('');
       setRecordingDurationSeconds(0);
       mediaChunksRef.current = [];
-      if (recordedVideoUrl) {
-        URL.revokeObjectURL(recordedVideoUrl);
-        setRecordedVideoUrl(null);
-      }
+      if (recordedVideoUrl) URL.revokeObjectURL(recordedVideoUrl);
+      setRecordedVideoUrl(null);
       startCountdown();
     }
   };
 
-  const handleSubmit = async () => {
-    if (isLoadingEvaluation || isRecording || isTranscribing || countdown !== null) return;
-
-    if (!answer.trim() && !recordedVideoUrl) {
-        toast({title: "No Answer Content", description: "Please record your answer."});
+  const handleAudioRecordClick = () => {
+    if (!isAudioSupported) {
+        toast({ variant: 'destructive', title: 'Audio Mode Not Supported', description: 'Please use a different browser like Chrome or use Video Mode.' });
         return;
     }
-    if (!answer.trim() && recordedVideoUrl) {
-        toast({title: "Submitting Video", description: "Submitting video without transcribed text. AI text analysis will be limited."});
+    if (!recognitionRef.current) return;
+    
+    if (isListening) {
+      recognitionRef.current.stop();
+    } else {
+      setLiveTranscript('');
+      setFinalTranscript('');
+      setAudioRecordingDuration(0);
+      setAudioRecordingStartTime(null);
+      recognitionRef.current.start();
     }
-    await onSubmitAnswer(answer, recordingDurationSeconds, recordedVideoUrl);
+  };
+
+  const handleSubmit = async () => {
+    if (practiceMode === 'video') {
+      if (isLoadingEvaluation || isRecording || isTranscribing || countdown !== null) return;
+      if (!answer.trim() && !recordedVideoUrl) { toast({title: "No Answer Content", description: "Please record your answer."}); return; }
+      if (!answer.trim() && recordedVideoUrl) toast({title: "Submitting Video", description: "Submitting video without transcribed text. AI text analysis will be limited."});
+      await onSubmitAnswer(answer, recordingDurationSeconds, recordedVideoUrl);
+    } else {
+      if (isLoadingEvaluation || isListening) return;
+      if (!finalTranscript.trim()) { toast({title: "No Answer Content", description: "Please record an audio answer."}); return; }
+      await onSubmitAnswer(finalTranscript, audioRecordingDuration, null);
+    }
     setShowEvaluation(true);
   };
 
   const handleGetModel = async () => {
-    if (isLoadingModelAnswer || isRecording || isTranscribing) return;
+    if (isLoadingModelAnswer || isRecording || isTranscribing || isListening) return;
     await onGetModelAnswer();
     setShowModelAnswer(true);
   };
-  
+
   const handleDownloadVideo = () => {
     if (!recordedVideoUrl) return;
     const a = document.createElement('a');
     a.href = recordedVideoUrl;
-    const extension = chosenMimeTypeRef.current.includes('mp4') ? 'mp4' : 'webm';
-    a.download = `career-confidence-interview-${new Date().toISOString()}.${extension}`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    a.download = `career-confidence-interview-${new Date().toISOString()}.webm`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
     toast({ title: 'Video Download Started' });
   };
 
   const handleDownloadTranscript = () => {
-    if (!answer.trim()) return;
-    const blob = new Blob([answer], { type: 'text/plain;charset=utf-8' });
+    const transcriptToDownload = practiceMode === 'video' ? answer : finalTranscript;
+    if (!transcriptToDownload.trim()) return;
+    const blob = new Blob([transcriptToDownload], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `career-confidence-transcript-${new Date().toISOString()}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(url);
     toast({ title: 'Transcript Download Started' });
   };
 
-
   const progressPercentage = (questionNumber / totalQuestions) * 100;
-
-  const getTimeManagementFeedback = () => {
-    if (!evaluationResult || recordingDurationSeconds <= 0) return null;
-    if (recordingDurationSeconds < EXPECTED_ANSWER_TIME_SECONDS * 0.75) {
-      return `Your answer was quite brief (${recordingDurationSeconds}s). Consider elaborating more. (Target: ~${EXPECTED_ANSWER_TIME_SECONDS}s)`;
-    } else if (recordingDurationSeconds > EXPECTED_ANSWER_TIME_SECONDS * 1.25) {
-      return `Your answer was a bit long (${recordingDurationSeconds}s). Try to be more concise. (Target: ~${EXPECTED_ANSWER_TIME_SECONDS}s)`;
-    }
-    return `Your answer duration (${recordingDurationSeconds}s) was good. (Target: ~${EXPECTED_ANSWER_TIME_SECONDS}s)`;
-  };
   const timeFeedback = getTimeManagementFeedback();
-
+  function getTimeManagementFeedback() {
+    if (!evaluationResult) return null;
+    const duration = practiceMode === 'video' ? recordingDurationSeconds : audioRecordingDuration;
+    if (duration <= 0) return null;
+    if (duration < EXPECTED_ANSWER_TIME_SECONDS * 0.75) return `Your answer was brief (${duration}s). Consider elaborating. (Target: ~${EXPECTED_ANSWER_TIME_SECONDS}s)`;
+    if (duration > EXPECTED_ANSWER_TIME_SECONDS * 1.25) return `Your answer was a bit long (${duration}s). Try to be more concise. (Target: ~${EXPECTED_ANSWER_TIME_SECONDS}s)`;
+    return `Your answer duration (${duration}s) was good. (Target: ~${EXPECTED_ANSWER_TIME_SECONDS}s)`;
+  }
+  
   const recordButtonDisabled = hasCameraPermission === false || isLoadingEvaluation || isLoadingNewQuestion || isTranscribing;
-  const submitButtonDisabled = (!answer.trim() && !recordedVideoUrl) || isLoadingEvaluation || isLoadingNewQuestion || isRecording || isTranscribing || countdown !== null;
-
+  const submitButtonDisabled = practiceMode === 'video'
+    ? (!answer.trim() && !recordedVideoUrl) || isLoadingEvaluation || isLoadingNewQuestion || isRecording || isTranscribing || countdown !== null
+    : !finalTranscript.trim() || isLoadingEvaluation || isLoadingNewQuestion || isListening;
+    
   return (
     <TooltipProvider>
     <div className="space-y-6 w-full max-w-3xl mx-auto">
@@ -405,191 +430,109 @@ export default function InterviewArea({
         <CardHeader>
           <div className="flex justify-between items-center mb-2">
             <CardTitle className="text-2xl font-semibold text-primary">Question {questionNumber} of {totalQuestions}</CardTitle>
-             <Tooltip>
-                <TooltipTrigger asChild>
-                    <Button variant="outline" size="sm" onClick={() => setShowVideoPreview(p => !p)} className="gap-1">
-                    {showVideoPreview ? <EyeOff size={16}/> : <Eye size={16}/>}
-                    {showVideoPreview ? 'Hide Preview' : 'Show Preview'}
-                    </Button>
-                </TooltipTrigger>
-                <TooltipContent><p>{showVideoPreview ? 'Hide live camera preview' : 'Show live camera preview'}</p></TooltipContent>
-            </Tooltip>
+            { practiceMode === 'video' &&
+                <Tooltip>
+                    <TooltipTrigger asChild><Button variant="outline" size="sm" onClick={() => setShowVideoPreview(p => !p)} className="gap-1"><EyeOff size={16}/>{showVideoPreview ? 'Hide Preview' : 'Show Preview'}</Button></TooltipTrigger>
+                    <TooltipContent><p>{showVideoPreview ? 'Hide live camera preview' : 'Show live camera preview'}</p></TooltipContent>
+                </Tooltip>
+            }
           </div>
           <Progress value={progressPercentage} className="w-full h-2" />
           {isLoadingNewQuestion ? (
-            <div className="flex items-center justify-center h-24">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              <p className="ml-2 text-muted-foreground">Generating question...</p>
-            </div>
+            <div className="flex items-center justify-center h-24"><Loader2 className="h-8 w-8 animate-spin text-primary" /><p className="ml-2 text-muted-foreground">Generating question...</p></div>
           ) : (
             <p className="text-xl mt-4 py-4 min-h-[6rem] leading-relaxed">{question}</p>
           )}
         </CardHeader>
 
         <CardContent className="relative">
-          {hasCameraPermission === null && (
-            <Alert variant="default"><AlertDescription>Checking camera permissions...</AlertDescription></Alert>
-          )}
-          {hasCameraPermission === false && (
-             <Alert variant="destructive">
-              <AlertTitle>Device Access Required</AlertTitle>
-              <AlertDescription>
-                Camera and microphone access is required to record video answers. Please enable permissions in your browser settings.
-              </AlertDescription>
-            </Alert>
-          )}
+          <Tabs value={practiceMode} onValueChange={(v) => setPracticeMode(v as 'video' | 'audio')} className="w-full">
+            <TabsList className="grid w-full grid-cols-2 mb-4">
+              <TabsTrigger value="video" disabled={hasCameraPermission === false}><Clapperboard className="mr-2 h-5 w-5"/>Video Practice</TabsTrigger>
+              <TabsTrigger value="audio" disabled={!isAudioSupported}><Mic className="mr-2 h-5 w-5"/>Audio Practice (Free)</TabsTrigger>
+            </TabsList>
 
-          {hasCameraPermission && (
-            <div className={`mb-4 rounded-md overflow-hidden shadow-inner border bg-black relative ${!showVideoPreview ? 'hidden' : ''}`}>
-              <video ref={videoPreviewRef} className="w-full aspect-video" autoPlay muted playsInline />
-                {countdown !== null && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50">
-                        <span className="text-8xl font-bold text-white" style={{textShadow: '0 0 10px rgba(0,0,0,0.7)'}}>{countdown}</span>
-                    </div>
-                )}
-            </div>
-          )}
+            <TabsContent value="video">
+              {hasCameraPermission === null && (<Alert variant="default"><AlertDescription>Checking camera permissions...</AlertDescription></Alert>)}
+              {hasCameraPermission === false && (<Alert variant="destructive"><AlertTitle>Device Access Required</AlertTitle><AlertDescription>Camera and microphone access is required for video practice. Enable permissions in your browser. Audio practice may still be available.</AlertDescription></Alert>)}
+              {hasCameraPermission && (
+                <div className={`mb-4 rounded-md overflow-hidden shadow-inner border bg-black relative ${!showVideoPreview ? 'hidden' : ''}`}>
+                  <video ref={videoPreviewRef} className="w-full aspect-video" autoPlay muted playsInline />
+                  {countdown !== null && (<div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50"><span className="text-8xl font-bold text-white" style={{textShadow: '0 0 10px rgba(0,0,0,0.7)'}}>{countdown}</span></div>)}
+                </div>
+              )}
+              {isRecording && (<div className="absolute top-16 left-1/2 -translate-x-1/2 bg-red-600 text-white px-3 py-1 rounded-full text-xs flex items-center shadow-lg animate-pulse z-10"><Video size={14} className="mr-1" /> REC</div>)}
+              {isTranscribing && (<div className="absolute top-16 left-1/2 -translate-x-1/2 bg-purple-600 text-white px-3 py-1 rounded-full text-xs flex items-center shadow-lg animate-pulse z-10"><Loader2 size={14} className="mr-1 animate-spin" /> TRANSCRIBING...</div>)}
+              <div className={`min-h-[50px] p-3 rounded-md border bg-muted text-muted-foreground ${answer.trim() ? 'text-foreground' : ''}`}>{answer.trim() ? answer : "Transcribed text from video will appear here..."}</div>
+              {(!isRecording && !isTranscribing && !answer.trim() && !recordedVideoUrl && hasCameraPermission) && (<div className="text-center text-muted-foreground py-4">Click the video camera below to start recording.</div>)}
+              {(!isRecording && !isTranscribing && (answer.trim() || recordedVideoUrl) && hasCameraPermission) && (<div className="text-center text-green-600 py-4 flex items-center justify-center"><CheckCircle size={20} className="mr-2"/> Answer recorded. Ready to submit.</div>)}
+            </TabsContent>
 
-          {isRecording && (
-              <div className="absolute top-2 left-1/2 -translate-x-1/2 bg-red-600 text-white px-3 py-1 rounded-full text-xs flex items-center shadow-lg animate-pulse z-10">
-                  <Video size={14} className="mr-1" /> REC
-              </div>
-          )}
-           {isTranscribing && (
-              <div className="absolute top-2 left-1/2 -translate-x-1/2 bg-purple-600 text-white px-3 py-1 rounded-full text-xs flex items-center shadow-lg animate-pulse z-10">
-                  <Loader2 size={14} className="mr-1 animate-spin" /> TRANSCRIBING...
-              </div>
-          )}
-
-          <div className={`min-h-[50px] p-3 rounded-md border bg-muted text-muted-foreground ${answer.trim() ? 'text-foreground' : ''}`}
-            aria-live="polite"
-          >
-            {answer.trim() ? answer : "Transcribed text will appear here..."}
-          </div>
-
-           {(!isRecording && !isTranscribing && !answer.trim() && !recordedVideoUrl && hasCameraPermission) && (
-            <div className="text-center text-muted-foreground py-4">
-              Click the video camera below to start recording your answer.
-            </div>
-          )}
-          {(!isRecording && !isTranscribing && (answer.trim() || recordedVideoUrl) && hasCameraPermission) && (
-             <div className="text-center text-green-600 py-4 flex items-center justify-center">
-              <CheckCircle size={20} className="mr-2"/> Answer recorded. {answer.trim() ? "Transcription complete." : "Video ready."} Ready to submit.
-            </div>
-          )}
-
+            <TabsContent value="audio">
+                <div className="flex flex-col items-center justify-center space-y-4">
+                  <div className={`w-full min-h-[50px] p-3 rounded-md border bg-muted text-muted-foreground ${liveTranscript.trim() ? 'text-foreground' : ''}`}>{liveTranscript.trim() ? liveTranscript : "Your live transcript will appear here..."}</div>
+                  <Button onClick={handleAudioRecordClick} variant={isListening ? 'destructive' : 'outline'} size="lg" disabled={isLoadingEvaluation || isLoadingNewQuestion} className="rounded-full py-3 px-6 gap-2">
+                    {isListening ? <MicOff size={24}/> : <Mic size={24} />}
+                    <span className="ml-0 text-base">{isListening ? "Stop Listening" : "Start Listening"}</span>
+                  </Button>
+                  {!isListening && finalTranscript && <div className="text-center text-green-600 pt-2 flex items-center justify-center"><CheckCircle size={16} className="mr-2"/> Ready to submit.</div>}
+                  {!isAudioSupported && <Alert variant="destructive"><AlertTitle>Audio Not Supported</AlertTitle><AlertDescription>Your browser doesn't support live transcription. Try Chrome/Edge or use Video Mode.</AlertDescription></Alert>}
+                </div>
+            </TabsContent>
+          </Tabs>
         </CardContent>
 
         {!showEvaluation && !isLoadingNewQuestion && (
           <CardFooter className="flex flex-col sm:flex-row justify-between items-center gap-2 pt-4">
             <div className="flex gap-2 w-full sm:w-auto">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button onClick={onRegenerateQuestion} variant="outline" disabled={recordButtonDisabled || isRecording || isCustomQuestion} className="gap-1">
-                    <RefreshCcw size={18} /> Regenerate
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent><p>{isCustomQuestion ? 'Cannot regenerate your own question' : 'Get a different question.'}</p></TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button onClick={onSkipQuestion} variant="outline" disabled={recordButtonDisabled || isRecording || isCustomQuestion} className="gap-1">
-                    <SkipForward size={18} /> Skip
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent><p>{isCustomQuestion ? 'Cannot skip your own question' : 'Skip this question.'}</p></TooltipContent>
-              </Tooltip>
+              <Tooltip><TooltipTrigger asChild><Button onClick={onRegenerateQuestion} variant="outline" disabled={recordButtonDisabled || isRecording || isCustomQuestion} className="gap-1"><RefreshCcw size={18} /> Regenerate</Button></TooltipTrigger><TooltipContent><p>{isCustomQuestion ? 'Cannot regenerate your own question' : 'Get a different question.'}</p></TooltipContent></Tooltip>
+              <Tooltip><TooltipTrigger asChild><Button onClick={onSkipQuestion} variant="outline" disabled={recordButtonDisabled || isRecording || isCustomQuestion} className="gap-1"><SkipForward size={18} /> Skip</Button></TooltipTrigger><TooltipContent><p>{isCustomQuestion ? 'Cannot skip your own question' : 'Skip this question.'}</p></TooltipContent></Tooltip>
             </div>
             <div className="flex gap-2 w-full sm:w-auto items-center">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                   <Button
-                    onClick={handleRecordButtonClick}
-                    variant={isRecording || countdown !== null ? "destructive" : "outline"}
-                    size="lg"
-                    disabled={recordButtonDisabled}
-                    aria-label={isRecording ? "Stop video recording" : (countdown !== null ? "Cancel recording" : "Start video recording answer")}
-                    className={`${isRecording ? "bg-red-500 hover:bg-red-600 text-white" : ""} py-3 px-6 rounded-full gap-2`}
-                  >
-                    {isRecording ? <VideoOff size={24} /> : (countdown !== null ? <X size={24} /> : <Video size={24} />)}
-                    <span className="ml-0 text-base">{isRecording ? "Stop Recording" : (countdown !== null ? "Cancel" : (isTranscribing ? "Processing..." : "Record Video"))}</span>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>{isRecording ? "Stop video recording" : (isTranscribing ? "Processing video/audio..." : "Start video recording answer")}</p>
-                </TooltipContent>
-              </Tooltip>
-
+              {practiceMode === 'video' && 
+                <Tooltip>
+                  <TooltipTrigger asChild><Button onClick={handleRecordButtonClick} variant={isRecording || countdown !== null ? "destructive" : "outline"} size="lg" disabled={recordButtonDisabled} aria-label={isRecording ? "Stop video" : (countdown !== null ? "Cancel" : "Start video")} className={`${isRecording ? "bg-red-500 hover:bg-red-600 text-white" : ""} py-3 px-6 rounded-full gap-2`}>{isRecording ? <VideoOff size={24} /> : (countdown !== null ? <X size={24} /> : <Video size={24} />)}<span className="ml-0 text-base">{isRecording ? "Stop" : (countdown !== null ? "Cancel" : (isTranscribing ? "Processing" : "Record"))}</span></Button></TooltipTrigger>
+                  <TooltipContent><p>{isRecording ? "Stop video recording" : (isTranscribing ? "Processing video..." : "Start video recording")}</p></TooltipContent>
+                </Tooltip>
+              }
               <Button onClick={handleSubmit} disabled={submitButtonDisabled} className="flex-grow sm:flex-grow-0 gap-1" size="lg">
-                {isLoadingEvaluation ? (
-                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                ) : (
-                  <Send size={20} />
-                )}
-                Submit
+                {isLoadingEvaluation ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Send size={20} />}
+                Submit Answer
               </Button>
             </div>
           </CardFooter>
         )}
       </Card>
 
-      {isLoadingEvaluation && (
-        <Card className="shadow-xl mt-4">
-          <CardContent className="p-6 flex flex-col items-center justify-center min-h-[200px]">
-            <Loader2 className="h-12 w-12 animate-spin text-primary mb-4" />
-            <p className="text-muted-foreground text-lg">Analyzing your answer...</p>
-          </CardContent>
-        </Card>
-      )}
+      {isLoadingEvaluation && ( <Card className="shadow-xl mt-4"><CardContent className="p-6 flex flex-col items-center justify-center min-h-[200px]"><Loader2 className="h-12 w-12 animate-spin text-primary mb-4" /><p className="text-muted-foreground text-lg">Analyzing your answer...</p></CardContent></Card> )}
 
       {showEvaluation && evaluationResult && !isLoadingEvaluation && (
         <Card className="shadow-xl animate-in fade-in duration-500">
           <CardHeader>
             <CardTitle className="text-2xl font-semibold text-primary flex items-center gap-2"><Award size={24}/> Performance Feedback</CardTitle>
-            <Alert variant={evaluationResult.score >= 70 ? "default" : "destructive"} className="mt-2 border-2">
-               <Badge variant={evaluationResult.score >=70 ? 'default': 'destructive'} className="text-lg">Score: {evaluationResult.score}/100</Badge>
-            </Alert>
+            <Alert variant={evaluationResult.score >= 70 ? "default" : "destructive"} className="mt-2 border-2"><Badge variant={evaluationResult.score >=70 ? 'default': 'destructive'} className="text-lg">Score: {evaluationResult.score}/100</Badge></Alert>
           </CardHeader>
           <CardContent className="space-y-4">
-            {recordedVideoUrl && (
+            {practiceMode === 'video' && recordedVideoUrl && (
               <div>
                 <div className="flex justify-between items-center mb-2">
                     <h3 className="text-lg font-semibold">Your Recorded Answer</h3>
                     <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                          <MoreVertical className="h-4 w-4" />
-                          <span className="sr-only">More options</span>
-                        </Button>
-                      </DropdownMenuTrigger>
+                      <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8"><MoreVertical className="h-4 w-4" /><span className="sr-only">More</span></Button></DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={handleDownloadVideo}>
-                          <Download className="mr-2 h-4 w-4" />
-                          <span>Download Video</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={handleDownloadTranscript} disabled={!answer.trim()}>
-                          <FileText className="mr-2 h-4 w-4" />
-                          <span>Download Transcript</span>
-                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={handleDownloadVideo}><Download className="mr-2 h-4 w-4" /><span>Download Video</span></DropdownMenuItem>
+                        <DropdownMenuItem onClick={handleDownloadTranscript} disabled={!answer.trim()}><FileText className="mr-2 h-4 w-4" /><span>Download Transcript</span></DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                 </div>
                 <video src={recordedVideoUrl} controls className="w-full rounded-md shadow-md aspect-video bg-black"></video>
-                {answer && (
-                  <div className="mt-4">
-                    <h4 className="text-md font-semibold mb-1">Transcript</h4>
-                    <p className="text-sm text-muted-foreground bg-muted p-3 rounded-md border whitespace-pre-wrap">{answer}</p>
-                  </div>
-                )}
-                <Alert variant="default" className="mt-3 bg-blue-50 border-blue-200 text-blue-800">
-                    <Info className="h-4 w-4 !text-blue-800" />
-                    <AlertTitle>Video is Temporary</AlertTitle>
-                    <AlertDescription>
-                        This video is not saved permanently. Download it now if you wish to keep a copy.
-                    </AlertDescription>
-                </Alert>
               </div>
             )}
+             <div>
+                <h3 className="text-lg font-semibold">Your Answer Transcript</h3>
+                <p className="text-sm text-muted-foreground bg-muted p-3 rounded-md border whitespace-pre-wrap">{practiceMode === 'video' ? answer : finalTranscript}</p>
+             </div>
+             {practiceMode === 'video' && recordedVideoUrl && (<Alert variant="default" className="mt-3 bg-blue-50 border-blue-200 text-blue-800"><Info className="h-4 w-4 !text-blue-800" /><AlertTitle>Video is Temporary</AlertTitle><AlertDescription>This video is not saved permanently. Download it now if you wish to keep a copy.</AlertDescription></Alert>)}
             <div>
               <h3 className="text-lg font-semibold flex items-center text-green-600"><CheckCircle size={20} className="mr-2" />Strengths</h3>
               <p className="text-muted-foreground bg-green-50 p-3 rounded-md border border-green-200">{evaluationResult.strengths}</p>
@@ -606,66 +549,24 @@ export default function InterviewArea({
                   <p><strong className="font-medium">Clarity:</strong> {communicationAnalysisResult.clarityFeedback}</p>
                   <p><strong className="font-medium">Confidence Cues:</strong> {communicationAnalysisResult.confidenceCues}</p>
                   <p><strong className="font-medium">Speaking Pace:</strong> {communicationAnalysisResult.speakingPaceWPM} WPM. {communicationAnalysisResult.paceFeedback}</p>
-                  {communicationAnalysisResult.fillerWordsFound.length > 0 && (
-                    <p><strong className="font-medium">Filler Words Found:</strong> {communicationAnalysisResult.fillerWordsFound.join(', ')}</p>
-                  )}
-                  {timeFeedback && <p><strong className="font-medium">Time Management (Recording Duration):</strong> {timeFeedback}</p>}
+                  {communicationAnalysisResult.fillerWordsFound.length > 0 && (<p><strong className="font-medium">Filler Words Found:</strong> {communicationAnalysisResult.fillerWordsFound.join(', ')}</p>)}
+                  {timeFeedback && <p><strong className="font-medium">Time Management:</strong> {timeFeedback}</p>}
                 </div>
               </div>
             )}
-             {(!answer.trim() && recordedVideoUrl) && (
-                <Alert variant="default" className="mt-3">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertTitle>Note on Text Analysis</AlertTitle>
-                  <Aler_description>
-                    No text was transcribed from your video recording. Text-based AI analysis (clarity, textual confidence, filler words, speaking pace) might be limited or based on an empty input. Your video and its duration were still processed.
-                  </Aler_description>
-                </Alert>
-              )}
-
-            {!modelAnswerText && (
-               <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button onClick={handleGetModel} variant="outline" className="w-full sm:w-auto border-accent text-accent-foreground hover:bg-accent/10 mt-2 gap-1" disabled={isLoadingModelAnswer || isRecording || isTranscribing}>
-                    {isLoadingModelAnswer ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Lightbulb size={18} />
-                    )}
-                    Show Model Answer
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Get an AI-generated ideal answer for this question.</p>
-                </TooltipContent>
-              </Tooltip>
-            )}
+             {(!answer.trim() && recordedVideoUrl) && (<Alert variant="default" className="mt-3"><AlertCircle className="h-4 w-4" /><AlertTitle>Note on Text Analysis</AlertTitle><AlertDescription>No text was transcribed from your video. AI analysis may be limited.</AlertDescription></Alert>)}
+            {!modelAnswerText && (<Tooltip><TooltipTrigger asChild><Button onClick={handleGetModel} variant="outline" className="w-full sm:w-auto border-accent text-accent-foreground hover:bg-accent/10 mt-2 gap-1" disabled={isLoadingModelAnswer || isRecording || isTranscribing} >{isLoadingModelAnswer ? (<Loader2 className="mr-2 h-4 w-4 animate-spin" />) : (<Lightbulb size={18} />)}Show Model Answer</Button></TooltipTrigger><TooltipContent><p>Get an AI-generated ideal answer for this question.</p></TooltipContent></Tooltip>)}
           </CardContent>
         </Card>
       )}
 
       {showModelAnswer && modelAnswerText && !isLoadingEvaluation && (
-         <Card className="shadow-xl animate-in fade-in duration-500 mt-4">
-           <CardHeader className="flex flex-row justify-between items-center">
-             <CardTitle className="text-xl font-semibold flex items-center text-indigo-600 gap-1"><Target size={20} className="mr-1" />Model Answer</CardTitle>
-           </CardHeader>
-           <CardContent>
-             <p className="text-muted-foreground bg-indigo-50 p-3 rounded-md border border-indigo-200">{modelAnswerText}</p>
-           </CardContent>
-         </Card>
+         <Card className="shadow-xl animate-in fade-in duration-500 mt-4"><CardHeader className="flex flex-row justify-between items-center"><CardTitle className="text-xl font-semibold flex items-center text-indigo-600 gap-1"><Target size={20} className="mr-1" />Model Answer</CardTitle></CardHeader><CardContent><p className="text-muted-foreground bg-indigo-50 p-3 rounded-md border border-indigo-200">{modelAnswerText}</p></CardContent></Card>
       )}
 
       {showEvaluation && !isLoadingEvaluation && (
         <div className="mt-6 flex justify-end">
-          {isLastQuestion ? (
-            <Button onClick={onFinishInterview} size="lg" className="bg-green-500 hover:bg-green-600 gap-1">
-              Finish Interview <Award size={20} className="ml-2"/>
-            </Button>
-          ) : (
-            <Button onClick={onNextQuestion} size="lg" className="gap-1">
-              Next Question <SkipForward size={20} className="ml-2"/>
-            </Button>
-          )}
+          {isLastQuestion ? (<Button onClick={onFinishInterview} size="lg" className="bg-green-500 hover:bg-green-600 gap-1">Finish Interview <Award size={20} className="ml-2"/></Button>) : (<Button onClick={onNextQuestion} size="lg" className="gap-1">Next Question <SkipForward size={20} className="ml-2"/></Button>)}
         </div>
       )}
     </div>

@@ -104,38 +104,28 @@ export default function InterviewPage() {
     setCurrentCommunicationAnalysis(null);
     let evaluationResult: EvaluateAnswerOutput | null = null;
     let communicationResult: AnalyzeCommunicationOutput | null = null;
-
-    console.log("--- handleSubmitAnswer in page.tsx ---");
-    console.log("Received answer (from Whisper/Hidden Textarea):", `"${answer}"`);
-    console.log("Received recordingDuration (from video/audio recording):", recordingDuration);
-    console.log("Received recordedVideoUrl:", recordedVideoUrl);
-    console.log("Current Question:", generatedQuestions[currentQuestionIndex]);
-    console.log("Current Settings:", currentSettings);
     
     try {
       // Evaluate main answer content (text)
       const evalInput: EvaluateAnswerInput = {
         question: generatedQuestions[currentQuestionIndex],
-        answer: answer, // This `answer` comes from server-side transcription via Whisper
+        answer: answer,
         jobRole: currentSettings.jobRole,
         difficulty: currentSettings.difficultyLevel,
       };
-      console.log("Submitting to evaluateAnswer with input:", JSON.stringify(evalInput, null, 2));
       evaluationResult = await evaluateAnswer(evalInput);
       setCurrentEvaluation(evaluationResult);
       toast({ title: "Answer Evaluated!", description: `Score: ${evaluationResult.score}/100` });
 
       // Analyze communication aspects
-      // This flow uses answerText (transcribed) and recordingDurationSeconds
-      if (answer.trim() || recordingDuration > 0) { // Proceed if there's text OR duration
+      if (answer.trim() || recordingDuration > 0) { 
         try {
           const commsInput: AnalyzeCommunicationInput = {
-            answerText: answer, // Use transcribed text, even if empty
+            answerText: answer,
             recordingDurationSeconds: recordingDuration,
             jobRole: currentSettings.jobRole,
             difficulty: currentSettings.difficultyLevel,
           };
-          console.log("Submitting to analyzeCommunication with input:", JSON.stringify(commsInput, null, 2));
           communicationResult = await analyzeCommunication(commsInput);
           setCurrentCommunicationAnalysis(communicationResult);
           toast({ title: "Communication Analyzed!" });
@@ -168,6 +158,7 @@ export default function InterviewPage() {
           communicationAnalysis: communicationResult ?? undefined,
           recordingDurationSeconds: recordingDuration,
           recordedVideoUrl: recordedVideoUrl ?? undefined,
+          practiceMode: recordedVideoUrl ? 'video' : 'audio',
         };
         setProgress(prevProgress => [...prevProgress, newAttempt]);
         if (!evaluationResult && (answer.trim() === "" && recordingDuration > 0)) {
