@@ -4,39 +4,29 @@
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
 import {
   Loader2,
-  Send,
   Video,
   VideoOff,
-  CheckCircle,
-  AlertCircle,
-  BarChartHorizontal,
   Clock,
   Users,
   BookOpen,
   ThumbsUp,
-  ThumbsDown,
   MessageSquare,
   BrainCircuit,
-  MoreVertical,
   Download,
   FileText,
   Info,
   X,
   Copy,
   CopyCheck,
+  Zap,
 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from '@/hooks/use-toast';
 import type { PresentationSettings } from '@/lib/types';
 import type { AnalyzePresentationOutput } from '@/ai/flows/analyze-presentation-flow';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 
 type PresentationAreaProps = {
   settings: PresentationSettings;
@@ -51,6 +41,34 @@ const timeFrameToSeconds = (timeFrame: string): number => {
     const minutes = parseInt(timeFrame.split(' ')[0]);
     return minutes * 60;
 };
+
+// Locally defined component for feedback metric bars
+const FeedbackMetricBar = ({ label, score }: { label: string; score: number }) => {
+  const getBarColor = (value: number) => {
+    if (value < 50) return 'bg-destructive';
+    if (value < 75) return 'bg-yellow-400'; // Using a direct color as 'accent' might not fit
+    return 'bg-green-500'; // Using a direct color for success
+  };
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-1">
+        <p className="text-sm font-medium text-muted-foreground">{label}</p>
+        <p className="text-sm font-bold">{score}</p>
+      </div>
+      <Progress value={score} indicatorClassName={getBarColor(score)} className="h-2" />
+    </div>
+  );
+};
+
+// Locally defined component for detailed feedback cards
+const FeedbackDetailCard = ({ icon, title, content }: { icon: React.ReactNode, title: string, content: string }) => (
+    <div className="bg-muted/50 p-4 rounded-lg border">
+        <h4 className="font-semibold text-md flex items-center gap-2 mb-1 text-primary">{icon}{title}</h4>
+        <p className="text-muted-foreground text-sm">{content}</p>
+    </div>
+);
+
 
 export default function PresentationArea({
   settings,
@@ -70,7 +88,6 @@ export default function PresentationArea({
 
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
   const [recordedVideoUrl, setRecordedVideoUrl] = useState<string | null>(null);
-  const [showTranscript, setShowTranscript] = useState(false);
   const [hasCopied, setHasCopied] = useState(false);
   
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -328,7 +345,7 @@ export default function PresentationArea({
 
         <CardContent>
           {hasCameraPermission === false && <Alert variant="destructive"><AlertTitle>Camera/Mic Required</AlertTitle><AlertDescription>Please enable device permissions to continue.</AlertDescription></Alert>}
-          <div className="mb-4 rounded-md overflow-hidden shadow-inner border bg-black relative">
+          <div className="mb-4 rounded-lg overflow-hidden shadow-inner border bg-black relative">
             <video ref={videoPreviewRef} className="w-full aspect-video" autoPlay muted playsInline />
              {countdown !== null && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50">
@@ -373,16 +390,41 @@ export default function PresentationArea({
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-6">
                 {recordedVideoUrl && (
-                  <div>
-                    <video src={recordedVideoUrl} controls className="w-full rounded-md shadow-md aspect-video bg-black"></video>
+                  <div className="rounded-lg overflow-hidden border shadow-md">
+                    <video src={recordedVideoUrl} controls className="w-full aspect-video bg-black"></video>
                   </div>
                 )}
+                
+                <Card className="p-6 bg-secondary/30">
+                  <CardTitle className="text-lg mb-4">Feedback Summary</CardTitle>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
+                    <FeedbackMetricBar label="Structure & Flow" score={analysisResult.structureScore} />
+                    <FeedbackMetricBar label="Clarity" score={analysisResult.clarityScore} />
+                    <FeedbackMetricBar label="Engagement" score={analysisResult.engagementScore} />
+                    <FeedbackMetricBar label="Time Management" score={analysisResult.timeManagementScore} />
+                    <FeedbackMetricBar label="Use of Filler Words" score={analysisResult.fillerWordsScore} />
+                     <div className="flex items-center justify-between pt-2">
+                        <p className="text-sm font-medium text-muted-foreground">Speaking Pace</p>
+                        <p className="text-sm font-bold">{analysisResult.speakingPaceWPM} WPM</p>
+                    </div>
+                  </div>
+                </Card>
+
+                <div className="space-y-4 pt-4">
+                    <CardTitle className="text-lg">Detailed Analysis</CardTitle>
+                    <FeedbackDetailCard icon={<Zap size={20}/>} title="Structure & Flow" content={analysisResult.structureFeedback} />
+                    <FeedbackDetailCard icon={<MessageSquare size={20}/>} title="Clarity" content={analysisResult.clarityFeedback} />
+                    <FeedbackDetailCard icon={<ThumbsUp size={20}/>} title="Engagement" content={analysisResult.engagementFeedback} />
+                    <FeedbackDetailCard icon={<Clock size={20}/>} title="Pacing & Time Management" content={`${analysisResult.paceFeedback} ${analysisResult.timeManagementFeedback}`} />
+                    {analysisResult.fillerWordsFound.length > 0 && <FeedbackDetailCard icon={<BookOpen size={20}/>} title="Filler Words" content={`The following filler words were detected: ${analysisResult.fillerWordsFound.join(', ')}.`} />}
+                </div>
+
                 {transcript && (
                   <div className="mt-4">
                     <div className="relative">
-                      <h4 className="text-md font-semibold mb-1">Transcript</h4>
+                      <h4 className="text-md font-semibold mb-1">Your Transcript</h4>
                       <p className="text-sm text-muted-foreground bg-muted p-3 pr-10 rounded-md border whitespace-pre-wrap">{transcript}</p>
                       <Button variant="ghost" size="icon" className="absolute top-0 right-0" onClick={handleCopyTranscript}>
                         {hasCopied ? <CopyCheck className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
@@ -397,24 +439,6 @@ export default function PresentationArea({
                         This video is not saved permanently. Download it now if you wish to keep a copy.
                     </AlertDescription>
                 </Alert>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-4">
-                        <FeedbackCard icon={<ThumbsUp size={20}/>} title="Structure & Flow" content={analysisResult.structureFeedback} />
-                        <FeedbackCard icon={<MessageSquare size={20}/>} title="Clarity" content={analysisResult.clarityFeedback} />
-                        <FeedbackCard icon={<ThumbsUp size={20}/>} title="Engagement" content={analysisResult.engagementFeedback} />
-                    </div>
-                    <div className="space-y-4">
-                         <FeedbackCard icon={<Clock size={20}/>} title="Pacing & Time Management" content={`${analysisResult.paceFeedback} ${analysisResult.timeManagementFeedback}`} />
-                         {analysisResult.fillerWordsFound.length > 0 && <FeedbackCard icon={<ThumbsDown size={20}/>} title="Filler Words Found" content={analysisResult.fillerWordsFound.join(', ')} />}
-                         <div className="bg-muted p-3 rounded-md">
-                            <h4 className="font-semibold flex items-center gap-2"><BarChartHorizontal/>Stats</h4>
-                            <p className="text-sm">Speaking Pace: <strong>{analysisResult.speakingPaceWPM} WPM</strong></p>
-                            <p className="text-sm">Duration: <strong>{analysisResult.actualDurationSeconds}s</strong></p>
-                         </div>
-                    </div>
-                </div>
-
             </CardContent>
             <CardFooter>
                  <Button onClick={onEndPractice} className="w-full sm:w-auto ml-auto">End Practice & Start New</Button>
@@ -424,10 +448,3 @@ export default function PresentationArea({
     </div>
   );
 }
-
-const FeedbackCard = ({ icon, title, content }: { icon: React.ReactNode, title: string, content: string }) => (
-    <div className="bg-card p-4 rounded-lg border shadow-sm">
-        <h4 className="font-semibold text-lg flex items-center gap-2 mb-1">{icon}{title}</h4>
-        <p className="text-muted-foreground text-sm">{content}</p>
-    </div>
-);
