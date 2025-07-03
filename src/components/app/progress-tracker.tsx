@@ -47,17 +47,16 @@ export default function ProgressTracker({ attempts }: ProgressTrackerProps) {
                       <p className="text-xs text-muted-foreground">{formatDistanceToNow(new Date(attempt.timestamp), { addSuffix: true })}</p>
                     </div>
                     <div className="flex items-center gap-2">
-                      {attempt.practiceMode === 'video' && (
+                      {attempt.practiceMode === 'video' ? (
                         <Badge variant="outline" className="text-xs hidden sm:flex items-center gap-1"><Clapperboard size={12}/> Video</Badge>
-                      )}
-                      {attempt.practiceMode === 'audio' && (
+                      ) : attempt.practiceMode === 'audio' ? (
                         <Badge variant="outline" className="text-xs hidden sm:flex items-center gap-1"><Mic size={12}/> Audio</Badge>
-                      )}
-                      {attempt.recordingDurationSeconds !== undefined && attempt.recordingDurationSeconds > 0 && (
+                      ) : null}
+                      {attempt.recordingDurationSeconds !== undefined && attempt.recordingDurationSeconds > 0 ? (
                         <Badge variant="outline" className="text-xs hidden sm:flex items-center gap-1">
                           <Clock size={12}/> {attempt.recordingDurationSeconds}s
                         </Badge>
-                      )}
+                      ) : null}
                       <Badge variant={attempt.evaluation.score >= 70 ? 'default' : 'destructive'} className="text-sm px-3 py-1">
                         Score: {attempt.evaluation.score}
                       </Badge>
@@ -72,7 +71,7 @@ export default function ProgressTracker({ attempts }: ProgressTrackerProps) {
                     </div>
                     <div>
                       <h4 className="font-medium text-muted-foreground">Your Answer (Text):</h4>
-                      <p className="pl-2 whitespace-pre-wrap">{attempt.userAnswer}</p>
+                      <p className="pl-2 whitespace-pre-wrap">{attempt.userAnswer || '(No text was transcribed for this attempt.)'}</p>
                     </div>
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">

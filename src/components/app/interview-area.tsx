@@ -88,7 +88,7 @@ export default function InterviewArea({
   // Shared state
   const [showEvaluation, setShowEvaluation] = useState(false);
   const [showModelAnswer, setShowModelAnswer] = useState(false);
-  const [practiceMode, setPracticeMode] = useState<'video' | 'audio'>('audio');
+  const [practiceMode, setPracticeMode] = useState<'audio' | 'video'>('audio');
   const { toast } = useToast();
 
   // Video Mode State
@@ -199,7 +199,23 @@ export default function InterviewArea({
 
     recognition.onerror = (event) => {
         console.error('Speech recognition error', event.error);
-        toast({ variant: 'destructive', title: 'Recognition Error', description: `An error occurred: ${event.error}. Try again or use Video Mode.` });
+        let title = 'Recognition Error';
+        let description = `An error occurred: ${event.error}. Try again or use Video Mode.`;
+
+        if (event.error === 'not-allowed') {
+            title = 'Microphone Permission Denied';
+            description = 'Audio practice requires microphone access. Please enable it in your browser settings for this site and try again.';
+        } else if (event.error === 'no-speech') {
+            title = 'No Speech Detected';
+            description = 'I didn\'t hear anything. Please make sure your microphone is working and try again.';
+        }
+        
+        toast({ 
+            variant: 'destructive', 
+            title: title, 
+            description: description,
+            duration: 7000,
+        });
         setIsListening(false);
     };
 
@@ -452,7 +468,7 @@ export default function InterviewArea({
         </CardHeader>
 
         <CardContent className="relative">
-          <Tabs value={practiceMode} onValueChange={(v) => setPracticeMode(v as 'video' | 'audio')} className="w-full">
+          <Tabs value={practiceMode} onValueChange={(v) => setPracticeMode(v as 'audio' | 'video')} className="w-full">
             <TabsList className="grid w-full grid-cols-2 mb-4">
               <TabsTrigger value="video" disabled={hasCameraPermission === false}><Clapperboard className="mr-2 h-5 w-5"/>Video Practice</TabsTrigger>
               <TabsTrigger value="audio" disabled={!isAudioSupported}><Mic className="mr-2 h-5 w-5"/>Audio Practice (Free)</TabsTrigger>
