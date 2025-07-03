@@ -167,18 +167,17 @@ export default function InterviewArea({
     recognitionRef.current = recognition;
 
     recognition.onresult = (event) => {
-        let final = '';
+        let final = finalTranscript;
         let interim = '';
-        for (const result of event.results) {
-            if (result.isFinal) {
-                final += result[0].transcript;
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) {
+                final += event.results[i][0].transcript;
             } else {
-                interim += result[0].transcript;
+                interim += event.results[i][0].transcript;
             }
         }
-        const currentTranscript = final + interim;
-        liveTranscriptRef.current = currentTranscript;
-        setLiveTranscript(currentTranscript);
+        liveTranscriptRef.current = final + interim;
+        setLiveTranscript(final + interim);
     };
 
     recognition.onstart = () => {
@@ -202,7 +201,7 @@ export default function InterviewArea({
         let title = 'Recognition Error';
         let description = `An error occurred: ${event.error}. Try again or use Video Mode.`;
 
-        if (event.error === 'not-allowed') {
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
             title = 'Microphone Permission Denied';
             description = 'Audio practice requires microphone access. Please enable it in your browser settings for this site and try again.';
         } else if (event.error === 'no-speech') {
@@ -225,18 +224,20 @@ export default function InterviewArea({
         }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [finalTranscript]);
 
   // Effect to manage video preview element
   useEffect(() => {
     const videoElement = videoPreviewRef.current;
-    if (hasCameraPermission && showVideoPreview && videoElement && videoStreamRef.current) {
-      if (videoElement.srcObject !== videoStreamRef.current) videoElement.srcObject = videoStreamRef.current;
+    if (practiceMode === 'video' && hasCameraPermission && showVideoPreview && videoElement && videoStreamRef.current) {
+      if (videoElement.srcObject !== videoStreamRef.current) {
+        videoElement.srcObject = videoStreamRef.current;
+      }
       videoElement.play().catch(error => console.warn("Video preview auto-play was prevented:", error));
-    } else if (videoElement && videoElement.srcObject) {
+    } else if (videoElement) {
       videoElement.pause();
     }
-  }, [hasCameraPermission, showVideoPreview]);
+  }, [hasCameraPermission, showVideoPreview, practiceMode]);
 
   // Effect to reset state when the question changes
   useEffect(() => {
