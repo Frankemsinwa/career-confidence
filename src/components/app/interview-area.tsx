@@ -116,6 +116,7 @@ export default function InterviewArea({
   const [finalTranscript, setFinalTranscript] = useState('');
   const audioRecordingStartTimeRef = useRef<number | null>(null);
   const [audioRecordingDuration, setAudioRecordingDuration] = useState(0);
+  const liveTranscriptRef = useRef('');
 
   // Effect to get camera/mic permissions
   useEffect(() => {
@@ -175,8 +176,9 @@ export default function InterviewArea({
                 interim += result[0].transcript;
             }
         }
-        setFinalTranscript(final);
-        setLiveTranscript(final + interim);
+        const currentTranscript = final + interim;
+        liveTranscriptRef.current = currentTranscript;
+        setLiveTranscript(currentTranscript);
     };
 
     recognition.onstart = () => {
@@ -187,6 +189,7 @@ export default function InterviewArea({
 
     recognition.onend = () => {
         setIsListening(false);
+        setFinalTranscript(liveTranscriptRef.current);
         if (audioRecordingStartTimeRef.current) {
             const duration = Math.round((Date.now() - audioRecordingStartTimeRef.current) / 1000);
             setAudioRecordingDuration(duration);
@@ -361,6 +364,7 @@ export default function InterviewArea({
     } else {
       setLiveTranscript('');
       setFinalTranscript('');
+      liveTranscriptRef.current = '';
       setAudioRecordingDuration(0);
       audioRecordingStartTimeRef.current = null;
       recognitionRef.current.start();
