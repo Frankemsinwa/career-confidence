@@ -208,12 +208,23 @@ export default function PresentationArea({
         
         try {
           const response = await fetch('/api/transcribe', { method: 'POST', body: formData });
-          if (!response.ok) throw new Error('Transcription failed on server.');
+          
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ error: 'Could not read server error response.' }));
+            throw new Error(errorData.error || `Server error: ${response.status}`);
+          }
+          
           const result = await response.json();
           setTranscript(result.transcript);
           await onSubmit(result.transcript, duration, newVideoUrl);
+
         } catch (error) {
-          toast({ title: "Transcription Failed", description: "Could not transcribe audio.", variant: "destructive" });
+          const message = error instanceof Error ? error.message : "An unknown error occurred during transcription.";
+          toast({
+            title: "Transcription Failed",
+            description: message,
+            variant: "destructive",
+          });
         } finally {
           setIsTranscribing(false);
           mediaChunksRef.current = [];
