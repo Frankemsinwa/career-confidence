@@ -118,29 +118,57 @@ export default function InterviewArea({
   const [audioRecordingDuration, setAudioRecordingDuration] = useState(0);
   const liveTranscriptRef = useRef('');
 
-  // Effect to get camera/mic permissions
+  // Combined effect to manage video stream and preview based on practice mode
   useEffect(() => {
-    const getPermissions = async () => {
-      if (videoStreamRef.current && videoStreamRef.current.active) return;
+    const videoElement = videoPreviewRef.current;
+
+    const enableVideo = async () => {
+      if (!videoElement) return;
+      if (!showVideoPreview) return;
+
+      // Check if we already have a stream
+      if (videoStreamRef.current && videoStreamRef.current.active) {
+        if (videoElement.srcObject !== videoStreamRef.current) {
+          videoElement.srcObject = videoStreamRef.current;
+        }
+        videoElement.play().catch(e => console.warn("Video preview autoplay prevented.", e));
+        if (!hasCameraPermission) setHasCameraPermission(true);
+        return;
+      }
+      
+      // If not, request permission
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         videoStreamRef.current = stream;
+        videoElement.srcObject = stream;
+        videoElement.play().catch(e => console.warn("Video preview autoplay prevented.", e));
         setHasCameraPermission(true);
       } catch (error) {
         console.error('Error accessing camera/microphone:', error);
         setHasCameraPermission(false);
-        if (practiceMode === 'video') {
-            toast({
-              variant: 'destructive',
-              title: 'Device Access Denied',
-              description: 'Please enable camera and microphone permissions in your browser settings to record video answers.',
-              duration: 7000,
-            });
-        }
+        toast({
+          variant: 'destructive',
+          title: 'Device Access Denied',
+          description: 'Video practice requires camera and mic access. Please enable it in browser settings.',
+        });
       }
     };
-    getPermissions();
 
+    const disableVideo = () => {
+      if (videoElement) {
+        videoElement.pause();
+      }
+    };
+
+    if (practiceMode === 'video') {
+      enableVideo();
+    } else {
+      disableVideo();
+    }
+  }, [practiceMode, showVideoPreview, hasCameraPermission, toast]);
+
+  // Separate effect for cleanup on unmount
+  useEffect(() => {
     return () => {
       if (videoStreamRef.current) {
         videoStreamRef.current.getTracks().forEach(track => track.stop());
@@ -148,8 +176,9 @@ export default function InterviewArea({
       }
       if (recordedVideoUrl) URL.revokeObjectURL(recordedVideoUrl);
       if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+      if (recognitionRef.current) recognitionRef.current.stop();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Effect for Web Speech API setup
@@ -188,6 +217,7 @@ export default function InterviewArea({
 
     recognition.onend = () => {
         setIsListening(false);
+        // Ensure finalTranscript is updated with the last live version
         setFinalTranscript(liveTranscriptRef.current);
         if (audioRecordingStartTimeRef.current) {
             const duration = Math.round((Date.now() - audioRecordingStartTimeRef.current) / 1000);
@@ -217,27 +247,8 @@ export default function InterviewArea({
         });
         setIsListening(false);
     };
-
-    return () => {
-        if(recognitionRef.current) {
-          recognitionRef.current.stop();
-        }
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [finalTranscript]);
-
-  // Effect to manage video preview element
-  useEffect(() => {
-    const videoElement = videoPreviewRef.current;
-    if (practiceMode === 'video' && hasCameraPermission && showVideoPreview && videoElement && videoStreamRef.current) {
-      if (videoElement.srcObject !== videoStreamRef.current) {
-        videoElement.srcObject = videoStreamRef.current;
-      }
-      videoElement.play().catch(error => console.warn("Video preview auto-play was prevented:", error));
-    } else if (videoElement) {
-      videoElement.pause();
-    }
-  }, [hasCameraPermission, showVideoPreview, practiceMode]);
 
   // Effect to reset state when the question changes
   useEffect(() => {
@@ -260,6 +271,7 @@ export default function InterviewArea({
     setIsListening(false);
     setLiveTranscript('');
     setFinalTranscript('');
+    liveTranscriptRef.current = '';
     setAudioRecordingDuration(0);
     audioRecordingStartTimeRef.current = null;
 
@@ -291,11 +303,14 @@ export default function InterviewArea({
 
   const startRecording = async () => {
      try {
+        if (!videoStreamRef.current) {
+          throw new Error("Camera stream not available. Cannot start recording.");
+        }
         const mimeTypeOptions = ['video/webm;codecs=vp9,opus', 'video/webm'];
         let chosenMimeType = mimeTypeOptions.find(type => MediaRecorder.isTypeSupported(type)) || 'video/webm';
         chosenMimeTypeRef.current = chosenMimeType;
         
-        mediaRecorderRef.current = new MediaRecorder(videoStreamRef.current!, { mimeType: chosenMimeType });
+        mediaRecorderRef.current = new MediaRecorder(videoStreamRef.current, { mimeType: chosenMimeType });
 
         mediaRecorderRef.current.ondataavailable = (event) => {
           if (event.data.size > 0) mediaChunksRef.current.push(event.data);
@@ -356,7 +371,7 @@ export default function InterviewArea({
     if (countdown !== null) { cancelCountdown(); return; }
     if (isTranscribing) { toast({ title: "Busy", description: "Please wait for transcription to complete." }); return; }
     if (hasCameraPermission === false) { toast({ title: "Permissions Required", description: "Camera and microphone access is needed to record.", variant: "destructive" }); return; }
-    if (!videoStreamRef.current || !videoStreamRef.current.active) { toast({ title: "Error", description: "Camera stream not available or inactive. Try refreshing.", variant: "destructive" }); setHasCameraPermission(null); return; }
+    if (!videoStreamRef.current || !videoStreamRef.current.active) { toast({ title: "Error", description: "Camera stream not available or inactive. Try refreshing.", variant: "destructive" }); return; }
     if (isRecording) {
       if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
     } else {
@@ -478,12 +493,12 @@ export default function InterviewArea({
             <TabsContent value="video">
               {hasCameraPermission === null && (<Alert variant="default"><AlertDescription>Checking camera permissions...</AlertDescription></Alert>)}
               {hasCameraPermission === false && (<Alert variant="destructive"><AlertTitle>Device Access Required</AlertTitle><AlertDescription>Camera and microphone access is required for video practice. Enable permissions in your browser. Audio practice may still be available.</AlertDescription></Alert>)}
-              {hasCameraPermission && (
-                <div className={`mb-4 rounded-md overflow-hidden shadow-inner border bg-black relative ${!showVideoPreview ? 'hidden' : ''}`}>
+              {
+                <div className={`mb-4 rounded-md overflow-hidden shadow-inner border bg-black relative ${!showVideoPreview || practiceMode !== 'video' ? 'hidden' : ''}`}>
                   <video ref={videoPreviewRef} className="w-full aspect-video" autoPlay muted playsInline />
                   {countdown !== null && (<div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50"><span className="text-8xl font-bold text-white" style={{textShadow: '0 0 10px rgba(0,0,0,0.7)'}}>{countdown}</span></div>)}
                 </div>
-              )}
+              }
               {isRecording && (<div className="absolute top-16 left-1/2 -translate-x-1/2 bg-red-600 text-white px-3 py-1 rounded-full text-xs flex items-center shadow-lg animate-pulse z-10"><Video size={14} className="mr-1" /> REC</div>)}
               {isTranscribing && (<div className="absolute top-16 left-1/2 -translate-x-1/2 bg-purple-600 text-white px-3 py-1 rounded-full text-xs flex items-center shadow-lg animate-pulse z-10"><Loader2 size={14} className="mr-1 animate-spin" /> TRANSCRIBING...</div>)}
               <div className={`min-h-[50px] p-3 rounded-md border bg-muted text-muted-foreground ${answer.trim() ? 'text-foreground' : ''}`}>{answer.trim() ? answer : "Transcribed text from video will appear here..."}</div>
@@ -553,7 +568,7 @@ export default function InterviewArea({
             )}
              <div>
                 <h3 className="text-lg font-semibold">Your Answer Transcript</h3>
-                <p className="text-sm text-muted-foreground bg-muted p-3 rounded-md border whitespace-pre-wrap">{practiceMode === 'video' ? answer : finalTranscript}</p>
+                <p className="text-sm text-muted-foreground bg-muted p-3 rounded-md border whitespace-pre-wrap">{practiceMode === 'video' ? (answer || '(No text was transcribed)') : (finalTranscript || '(No text was recorded)')}</p>
              </div>
              {practiceMode === 'video' && recordedVideoUrl && (<Alert variant="default" className="mt-3 bg-blue-50 border-blue-200 text-blue-800"><Info className="h-4 w-4 !text-blue-800" /><AlertTitle>Video is Temporary</AlertTitle><AlertDescription>This video is not saved permanently. Download it now if you wish to keep a copy.</AlertDescription></Alert>)}
             <div>
