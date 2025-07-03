@@ -76,6 +76,14 @@ export default function PresentationPage() {
     toast({ title: 'Practice Session Ended', description: 'Great work! You can start a new session anytime.' });
   };
 
+  const handleRetryPractice = () => {
+    setCurrentAnalysis(null);
+    toast({
+      title: 'Ready for Another Take!',
+      description: 'Your settings are the same. Start recording when you are ready.',
+    });
+  };
+
   return (
     <div className="container mx-auto px-4 py-8 min-h-[calc(100vh-var(--header-height,80px))]">
       {!isPracticeActive ? (
@@ -85,6 +93,7 @@ export default function PresentationPage() {
           settings={settings}
           onSubmit={handleSubmitPresentation}
           onEndPractice={handleEndPractice}
+          onRetryPractice={handleRetryPractice}
           isLoading={isLoading}
           analysisResult={currentAnalysis}
         />

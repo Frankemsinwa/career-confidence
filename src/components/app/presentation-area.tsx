@@ -25,6 +25,7 @@ import {
   Mic,
   MicOff,
   Clapperboard,
+  RefreshCw,
 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from '@/hooks/use-toast';
@@ -36,6 +37,7 @@ type PresentationAreaProps = {
   settings: PresentationSettings;
   onSubmit: (transcript: string, duration: number, recordedVideoUrl?: string | null) => Promise<void>;
   onEndPractice: () => void;
+  onRetryPractice: () => void;
   isLoading: boolean;
   analysisResult: AnalyzePresentationOutput | null;
 };
@@ -78,6 +80,7 @@ export default function PresentationArea({
   settings,
   onSubmit,
   onEndPractice,
+  onRetryPractice,
   isLoading,
   analysisResult,
 }: PresentationAreaProps) {
@@ -488,7 +491,7 @@ export default function PresentationArea({
                 <Card className="p-6 bg-secondary/30">
                   <CardTitle className="text-lg mb-4">Feedback Summary</CardTitle>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
-                    <FeedbackMetricBar label="Structure & Flow" score={analysisResult.structureScore} />
+                    <FeedbackMetricBar label="Structure &amp; Flow" score={analysisResult.structureScore} />
                     <FeedbackMetricBar label="Clarity" score={analysisResult.clarityScore} />
                     <FeedbackMetricBar label="Engagement" score={analysisResult.engagementScore} />
                     <FeedbackMetricBar label="Time Management" score={analysisResult.timeManagementScore} />
@@ -502,10 +505,10 @@ export default function PresentationArea({
 
                 <div className="space-y-4 pt-4">
                     <CardTitle className="text-lg">Detailed Analysis</CardTitle>
-                    <FeedbackDetailCard icon={<Zap size={20}/>} title="Structure & Flow" content={analysisResult.structureFeedback} />
+                    <FeedbackDetailCard icon={<Zap size={20}/>} title="Structure &amp; Flow" content={analysisResult.structureFeedback} />
                     <FeedbackDetailCard icon={<MessageSquare size={20}/>} title="Clarity" content={analysisResult.clarityFeedback} />
                     <FeedbackDetailCard icon={<ThumbsUp size={20}/>} title="Engagement" content={analysisResult.engagementFeedback} />
-                    <FeedbackDetailCard icon={<Clock size={20}/>} title="Pacing & Time Management" content={`${analysisResult.paceFeedback} ${analysisResult.timeManagementFeedback}`} />
+                    <FeedbackDetailCard icon={<Clock size={20}/>} title="Pacing &amp; Time Management" content={`${analysisResult.paceFeedback} ${analysisResult.timeManagementFeedback}`} />
                     {analysisResult.fillerWordsFound.length > 0 && <FeedbackDetailCard icon={<BookOpen size={20}/>} title="Filler Words" content={`The following filler words were detected: ${analysisResult.fillerWordsFound.join(', ')}.`} />}
                 </div>
 
@@ -528,8 +531,12 @@ export default function PresentationArea({
                     </AlertDescription>
                 </Alert>
             </CardContent>
-            <CardFooter>
-                 <Button onClick={onEndPractice} className="w-full sm:w-auto ml-auto">End Practice & Start New</Button>
+            <CardFooter className="flex justify-end gap-2">
+              <Button onClick={onRetryPractice} variant="outline" className="gap-2">
+                <RefreshCw size={16} />
+                Retry
+              </Button>
+              <Button onClick={onEndPractice}>End Practice &amp; Start New</Button>
             </CardFooter>
         </Card>
       )}
