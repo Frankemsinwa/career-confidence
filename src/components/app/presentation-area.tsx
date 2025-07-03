@@ -24,6 +24,8 @@ import {
   FileText,
   Info,
   X,
+  Copy,
+  CopyCheck,
 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from '@/hooks/use-toast';
@@ -68,6 +70,8 @@ export default function PresentationArea({
 
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
   const [recordedVideoUrl, setRecordedVideoUrl] = useState<string | null>(null);
+  const [showTranscript, setShowTranscript] = useState(false);
+  const [hasCopied, setHasCopied] = useState(false);
   
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -150,11 +154,27 @@ export default function PresentationArea({
   }
 
   const startRecording = () => {
+    try {
       mediaChunksRef.current = [];
 
-      const mimeType = 'video/webm';
-      chosenMimeTypeRef.current = mimeType;
-      mediaRecorderRef.current = new MediaRecorder(videoStreamRef.current!, { mimeType });
+      const mimeTypeOptions = [
+        'video/webm;codecs=vp9,opus',
+        'video/webm;codecs=vp8,opus',
+        'video/webm;codecs=h264,opus',
+        'video/mp4;codecs=h264,aac',
+        'video/webm',
+      ];
+
+      let chosenMimeType = 'video/webm';
+      for (const type of mimeTypeOptions) {
+        if (MediaRecorder.isTypeSupported(type)) {
+          chosenMimeType = type;
+          break;
+        }
+      }
+      chosenMimeTypeRef.current = chosenMimeType;
+
+      mediaRecorderRef.current = new MediaRecorder(videoStreamRef.current!, { mimeType: chosenMimeType });
 
       mediaRecorderRef.current.ondataavailable = (event) => {
         if (event.data.size > 0) mediaChunksRef.current.push(event.data);
@@ -178,12 +198,13 @@ export default function PresentationArea({
         setIsTranscribing(true);
         toast({ title: "Recording stopped", description: "Transcribing your presentation..." });
 
-        const mediaBlob = new Blob(mediaChunksRef.current, { type: mimeType });
+        const mediaBlob = new Blob(mediaChunksRef.current, { type: chosenMimeType });
         const newVideoUrl = URL.createObjectURL(mediaBlob);
         setRecordedVideoUrl(newVideoUrl);
         
         const formData = new FormData();
-        formData.append('audio', mediaBlob, `presentation.webm`);
+        const fileExtension = chosenMimeType.includes('mp4') ? 'mp4' : 'webm';
+        formData.append('audio', mediaBlob, `presentation.${fileExtension}`);
         
         try {
           const response = await fetch('/api/transcribe', { method: 'POST', body: formData });
@@ -199,6 +220,11 @@ export default function PresentationArea({
         }
       };
       mediaRecorderRef.current.start();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not start recording.";
+      toast({ title: "Recording Error", description: `Failed to start video recording: ${message}`, variant: "destructive" });
+      setIsRecording(false);
+    }
   }
 
   const handleRecordButtonClick = async () => {
@@ -247,6 +273,14 @@ export default function PresentationArea({
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     toast({ title: 'Transcript Download Started' });
+  };
+
+  const handleCopyTranscript = () => {
+    if (!transcript.trim()) return;
+    navigator.clipboard.writeText(transcript);
+    setHasCopied(true);
+    toast({ title: 'Transcript Copied!' });
+    setTimeout(() => setHasCopied(false), 2000);
   };
 
   
@@ -315,47 +349,43 @@ export default function PresentationArea({
 
       {analysisResult && !isLoading && (
         <Card className="animate-in fade-in duration-500">
-            <CardHeader><CardTitle className="text-2xl font-semibold text-primary flex items-center gap-2"><BrainCircuit size={24}/> Presentation Feedback</CardTitle></CardHeader>
+            <CardHeader>
+              <div className="flex justify-between items-center">
+                <CardTitle className="text-2xl font-semibold text-primary flex items-center gap-2"><BrainCircuit size={24}/> Presentation Feedback</CardTitle>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="icon" onClick={handleDownloadVideo} disabled={!recordedVideoUrl} aria-label="Download Video">
+                    <Download className="h-5 w-5" />
+                  </Button>
+                  <Button variant="outline" size="icon" onClick={handleDownloadTranscript} disabled={!transcript} aria-label="Download Transcript">
+                    <FileText className="h-5 w-5" />
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
             <CardContent className="space-y-4">
                 {recordedVideoUrl && (
                   <div>
-                     <div className="flex justify-between items-center mb-2">
-                        <h3 className="text-lg font-semibold">Your Recorded Presentation:</h3>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8">
-                              <MoreVertical className="h-4 w-4" />
-                               <span className="sr-only">More options</span>
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={handleDownloadVideo}>
-                              <Download className="mr-2 h-4 w-4" />
-                              <span>Download Video</span>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={handleDownloadTranscript} disabled={!transcript.trim()}>
-                              <FileText className="mr-2 h-4 w-4" />
-                              <span>Download Transcript</span>
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                    </div>
                     <video src={recordedVideoUrl} controls className="w-full rounded-md shadow-md aspect-video bg-black"></video>
-                    {transcript && (
-                        <div className="mt-4">
-                            <h4 className="text-md font-semibold mb-1">Transcript</h4>
-                            <p className="text-sm text-muted-foreground bg-muted p-3 rounded-md border whitespace-pre-wrap">{transcript}</p>
-                        </div>
-                    )}
-                     <Alert variant="default" className="mt-3 bg-blue-50 border-blue-200 text-blue-800">
-                        <Info className="h-4 w-4 !text-blue-800" />
-                        <AlertTitle>Video is Temporary</AlertTitle>
-                        <AlertDescription>
-                            This video is not saved permanently. Download it now if you wish to keep a copy.
-                        </AlertDescription>
-                    </Alert>
                   </div>
                 )}
+                {transcript && (
+                  <div className="mt-4">
+                    <div className="relative">
+                      <h4 className="text-md font-semibold mb-1">Transcript</h4>
+                      <p className="text-sm text-muted-foreground bg-muted p-3 pr-10 rounded-md border whitespace-pre-wrap">{transcript}</p>
+                      <Button variant="ghost" size="icon" className="absolute top-0 right-0" onClick={handleCopyTranscript}>
+                        {hasCopied ? <CopyCheck className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                <Alert variant="default" className="mt-3 bg-blue-50 border-blue-200 text-blue-800">
+                    <Info className="h-4 w-4 !text-blue-800" />
+                    <AlertTitle>Video is Temporary</AlertTitle>
+                    <AlertDescription>
+                        This video is not saved permanently. Download it now if you wish to keep a copy.
+                    </AlertDescription>
+                </Alert>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-4">
