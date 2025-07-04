@@ -116,8 +116,6 @@ export default function PresentationArea({
   const [isListening, setIsListening] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState('');
   const [finalTranscript, setFinalTranscript] = useState('');
-  const audioRecordingStartTimeRef = useRef<number | null>(null);
-  const [audioRecordingDuration, setAudioRecordingDuration] = useState(0);
   const liveTranscriptRef = useRef('');
 
   // Timer State
@@ -127,9 +125,8 @@ export default function PresentationArea({
 
   const targetSeconds = timeFrameToSeconds(settings.timeFrame);
 
-  // Effect to manage video stream and preview.
+  // This effect creates and destroys the stream based on practice mode
   useEffect(() => {
-    const videoElement = videoPreviewRef.current;
     if (practiceMode === 'video') {
       let isMounted = true;
       const enableCamera = async () => {
@@ -138,9 +135,6 @@ export default function PresentationArea({
           if (isMounted) {
             videoStreamRef.current = stream;
             setHasCameraPermission(true);
-            if (videoElement) {
-              videoElement.srcObject = stream;
-            }
           } else {
             stream.getTracks().forEach(track => track.stop());
           }
@@ -156,22 +150,25 @@ export default function PresentationArea({
           }
         }
       };
-
       enableCamera();
-
       return () => {
         isMounted = false;
         if (videoStreamRef.current) {
           videoStreamRef.current.getTracks().forEach(track => track.stop());
           videoStreamRef.current = null;
         }
-        if(videoElement) {
-            videoElement.srcObject = null;
-        }
         setHasCameraPermission(null);
       };
     }
   }, [practiceMode, toast]);
+
+  // This effect attaches the stream to the video element for preview
+  useEffect(() => {
+    const videoElement = videoPreviewRef.current;
+    if (practiceMode === 'video' && videoElement && videoStreamRef.current) {
+        videoElement.srcObject = videoStreamRef.current;
+    }
+  }, [practiceMode, hasCameraPermission]);
 
 
   // Effect for Web Speech API setup
@@ -209,14 +206,14 @@ export default function PresentationArea({
         toast({ title: 'Listening...', description: 'Start your presentation.' });
     };
 
-    recognition.onend = () => {
+    recognition.onend = async () => {
         setIsListening(false);
         const duration = stopTimer();
         const final = liveTranscriptRef.current;
         setFinalTranscript(final);
         
         if (final.trim()) {
-            onSubmit(final, duration, null);
+            await onSubmit(final, duration, null);
         } else {
             toast({ title: "No speech detected", variant: "destructive" });
         }
@@ -381,7 +378,6 @@ export default function PresentationArea({
       setFinalTranscript('');
       setLiveTranscript('');
       liveTranscriptRef.current = '';
-      setAudioRecordingDuration(0);
       setElapsedSeconds(0);
       recognitionRef.current.start();
     }
