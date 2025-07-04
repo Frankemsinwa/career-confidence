@@ -274,38 +274,43 @@ export default function InterviewPage() {
   return (
     <div className="container mx-auto px-4 py-8 min-h-[calc(100vh-var(--header-height,80px))]">
       {!isInterviewActive ? (
-        // If interview is not active, show setup or completion card
-        (currentSettings === null || generatedQuestions.length === 0 || (currentQuestionIndex === 0 && !currentEvaluation)) ? 
-          (<InterviewSetupForm 
-            onSubmit={handleStartInterview} 
-            isLoading={isLoadingSetup}
-          />)
-         : 
-          (<Card className="w-full max-w-md mx-auto text-center shadow-xl">
-            <CardHeader>
-              <Award size={64} className="mx-auto text-accent mb-4" />
-              <CardTitle className="text-3xl font-bold">Interview Complete!</CardTitle>
-              <CardDescription className="text-lg text-muted-foreground">
-                Well done! You've completed your practice session. Review your progress below.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button onClick={() => {
-                  setCurrentSettings(null); // This will take user back to setup form
-                  setGeneratedQuestions([]);
-                  setCurrentQuestionIndex(0);
-                  setCurrentEvaluation(null);
-                  setCurrentModelAnswer(null);
-                  setCurrentCommunicationAnalysis(null);
-                }} 
-                size="lg" 
-                className="w-full text-lg py-6"
-              >
-                <RotateCcw size={20} className="mr-2"/> Start New Interview
-              </Button>
-            </CardContent>
-          </Card>)
-        
+        <>
+          {/* If interview is not active, show setup or completion card */}
+          {(currentSettings === null || generatedQuestions.length === 0 || (currentQuestionIndex === 0 && !currentEvaluation)) ? 
+            (<InterviewSetupForm 
+              onSubmit={handleStartInterview} 
+              isLoading={isLoadingSetup}
+            />)
+          : 
+            (<Card className="w-full max-w-md mx-auto text-center shadow-xl">
+              <CardHeader>
+                <Award size={64} className="mx-auto text-accent mb-4" />
+                <CardTitle className="text-3xl font-bold">Interview Complete!</CardTitle>
+                <CardDescription className="text-lg text-muted-foreground">
+                  Well done! You've completed your practice session. Review your progress below.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button onClick={() => {
+                    setCurrentSettings(null); // This will take user back to setup form
+                    setGeneratedQuestions([]);
+                    setCurrentQuestionIndex(0);
+                    setCurrentEvaluation(null);
+                    setCurrentModelAnswer(null);
+                    setCurrentCommunicationAnalysis(null);
+                  }} 
+                  size="lg" 
+                  className="w-full text-lg py-6"
+                >
+                  <RotateCcw size={20} className="mr-2"/> Start New Interview
+                </Button>
+              </CardContent>
+            </Card>)
+          }
+          <div className="mt-12">
+            {hasMounted ? <ProgressTracker attempts={progress} /> : <p className="text-center text-muted-foreground">Loading progress...</p>}
+          </div>
+        </>
       ) : (
         <InterviewArea
           question={generatedQuestions[currentQuestionIndex]}
@@ -327,10 +332,6 @@ export default function InterviewPage() {
           isCustomQuestion={!!currentSettings?.customQuestion}
         />
       )}
-
-      <div className="mt-12">
-        {hasMounted ? <ProgressTracker attempts={progress} /> : <p className="text-center text-muted-foreground">Loading progress...</p>}
-      </div>
     </div>
   );
 }

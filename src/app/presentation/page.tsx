@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -10,6 +11,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { analyzePresentation } from '@/ai/flows/analyze-presentation-flow';
 import type { AnalyzePresentationOutput } from '@/ai/flows/analyze-presentation-flow';
 import { generatePresentationSuggestion } from '@/ai/flows/generate-presentation-suggestion';
+import PresentationProgressTracker from '@/components/app/presentation-progress-tracker';
 
 export default function PresentationPage() {
   const [settings, setSettings] = useState<PresentationSettings | null>(null);
@@ -21,6 +23,11 @@ export default function PresentationPage() {
   
   const [progress, setProgress] = useLocalStorage<StoredPresentationAttempt[]>('careerConfidencePresentationProgress', []);
   const { toast } = useToast();
+
+  const [hasMounted, setHasMounted] = useState(false);
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
 
   const handleStartPractice = (newSettings: PresentationSettings) => {
     setSettings(newSettings);
@@ -111,7 +118,12 @@ export default function PresentationPage() {
   return (
     <div className="container mx-auto px-4 py-8 min-h-[calc(100vh-var(--header-height,80px))]">
       {!isPracticeActive ? (
-        <PresentationSetupForm onSubmit={handleStartPractice} isLoading={isLoading} />
+        <>
+          <PresentationSetupForm onSubmit={handleStartPractice} isLoading={isLoading} />
+          <div className="mt-12">
+            {hasMounted ? <PresentationProgressTracker attempts={progress} /> : <p className="text-center text-muted-foreground">Loading progress...</p>}
+          </div>
+        </>
       ) : settings ? (
         <PresentationArea
           settings={settings}
@@ -125,9 +137,13 @@ export default function PresentationPage() {
           modelSuggestion={modelSuggestion}
         />
       ) : (
-        <PresentationSetupForm onSubmit={handleStartPractice} isLoading={isLoading} />
+        <>
+          <PresentationSetupForm onSubmit={handleStartPractice} isLoading={isLoading} />
+           <div className="mt-12">
+            {hasMounted ? <PresentationProgressTracker attempts={progress} /> : <p className="text-center text-muted-foreground">Loading progress...</p>}
+          </div>
+        </>
       )}
-       {/* TODO: Add a ProgressTracker for presentations similar to the interview page */}
     </div>
   );
 }
