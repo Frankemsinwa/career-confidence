@@ -92,7 +92,7 @@ export default function PresentationArea({
   modelSuggestion,
 }: PresentationAreaProps) {
   // Shared state
-  const [practiceMode, setPracticeMode] = useState<'video' | 'audio'>('audio');
+  const [practiceMode, setPracticeMode] = useState<'audio' | 'video'>('audio');
   const [hasCopied, setHasCopied] = useState(false);
   const { toast } = useToast();
 
@@ -127,31 +127,52 @@ export default function PresentationArea({
 
   const targetSeconds = timeFrameToSeconds(settings.timeFrame);
 
-  // Get camera permissions, runs only once on mount
+  // Effect to manage video stream and preview.
   useEffect(() => {
-    async function getPermissions() {
-      if (videoStreamRef.current) return;
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        videoStreamRef.current = stream;
-        setHasCameraPermission(true);
-      } catch (error) {
-        console.error("Error accessing camera/mic:", error);
-        setHasCameraPermission(false);
-        toast({ variant: 'destructive', title: 'Device Access Denied', description: 'Camera and mic are needed to record a video.' });
-      }
-    }
-    getPermissions();
+    const videoElement = videoPreviewRef.current;
+    if (practiceMode === 'video') {
+      let isMounted = true;
+      const enableCamera = async () => {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+          if (isMounted) {
+            videoStreamRef.current = stream;
+            setHasCameraPermission(true);
+            if (videoElement) {
+              videoElement.srcObject = stream;
+            }
+          } else {
+            stream.getTracks().forEach(track => track.stop());
+          }
+        } catch (error) {
+          if (isMounted) {
+            console.error('Error accessing camera/microphone:', error);
+            setHasCameraPermission(false);
+            toast({
+              variant: 'destructive',
+              title: 'Device Access Denied',
+              description: 'Video practice requires camera and mic access. Please enable it in browser settings.',
+            });
+          }
+        }
+      };
 
-    return () => {
-      // Cleanup: stop camera tracks, clear timers, and revoke any video URLs
-      videoStreamRef.current?.getTracks().forEach(track => track.stop());
-      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
-      if (recordedVideoUrl) URL.revokeObjectURL(recordedVideoUrl);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+      enableCamera();
+
+      return () => {
+        isMounted = false;
+        if (videoStreamRef.current) {
+          videoStreamRef.current.getTracks().forEach(track => track.stop());
+          videoStreamRef.current = null;
+        }
+        if(videoElement) {
+            videoElement.srcObject = null;
+        }
+        setHasCameraPermission(null);
+      };
+    }
+  }, [practiceMode, toast]);
+
 
   // Effect for Web Speech API setup
   useEffect(() => {
@@ -170,11 +191,11 @@ export default function PresentationArea({
     recognition.onresult = (event) => {
         let final = finalTranscript; // Append to existing final transcript
         let interim = '';
-        for (const result of event.results) {
-            if (result.isFinal) {
-                final += result[0].transcript;
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) {
+                final += event.results[i][0].transcript;
             } else {
-                interim += result[0].transcript;
+                interim += event.results[i][0].transcript;
             }
         }
         const currentLive = final + interim;
@@ -216,25 +237,16 @@ export default function PresentationArea({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [finalTranscript]);
   
-  // Effect to manage video preview element
-  useEffect(() => {
-    const videoElement = videoPreviewRef.current;
-    if (practiceMode === 'video' && hasCameraPermission && videoElement && videoStreamRef.current) {
-      if (videoElement.srcObject !== videoStreamRef.current) {
-        videoElement.srcObject = videoStreamRef.current;
-      }
-      videoElement.play().catch(e => console.error("Error playing video preview:", e));
-    }
-  }, [practiceMode, hasCameraPermission]);
-
-
   useEffect(() => {
     // Reset state when analysis result is cleared (new session starts)
     if (!analysisResult) {
         setTranscript('');
         setFinalTranscript('');
         setLiveTranscript('');
-        setRecordedVideoUrl(null);
+        setRecordedVideoUrl(prevUrl => {
+            if (prevUrl) URL.revokeObjectURL(prevUrl);
+            return null;
+        });
         setElapsedSeconds(0);
         cancelCountdown();
     }
@@ -446,6 +458,7 @@ export default function PresentationArea({
               <TabsTrigger value="audio" disabled={!isAudioSupported}><Mic className="mr-2 h-5 w-5"/>Audio Practice (Free)</TabsTrigger>
             </TabsList>
             <TabsContent value="video">
+              {hasCameraPermission === null && (<Alert variant="default"><AlertDescription>Checking camera permissions...</AlertDescription></Alert>)}
               {hasCameraPermission === false && <Alert variant="destructive"><AlertTitle>Camera/Mic Required</AlertTitle><AlertDescription>Please enable device permissions for video practice.</AlertDescription></Alert>}
               <div className="mb-4 rounded-lg overflow-hidden shadow-inner border bg-black relative">
                 <video ref={videoPreviewRef} className="w-full aspect-video" autoPlay muted playsInline />

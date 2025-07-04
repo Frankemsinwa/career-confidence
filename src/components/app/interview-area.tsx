@@ -118,68 +118,55 @@ export default function InterviewArea({
   const [audioRecordingDuration, setAudioRecordingDuration] = useState(0);
   const liveTranscriptRef = useRef('');
 
-  // Combined effect to manage video stream and preview based on practice mode
+  // This effect creates and destroys the stream based on practice mode
+  useEffect(() => {
+    if (practiceMode === 'video') {
+      let isMounted = true;
+      const enableCamera = async () => {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+          if (isMounted) {
+            videoStreamRef.current = stream;
+            setHasCameraPermission(true);
+          } else {
+            stream.getTracks().forEach(track => track.stop());
+          }
+        } catch (error) {
+          if (isMounted) {
+            console.error('Error accessing camera/microphone:', error);
+            setHasCameraPermission(false);
+            toast({
+              variant: 'destructive',
+              title: 'Device Access Denied',
+              description: 'Video practice requires camera and mic access. Please enable it in browser settings.',
+            });
+          }
+        }
+      };
+      enableCamera();
+      return () => {
+        isMounted = false;
+        if (videoStreamRef.current) {
+          videoStreamRef.current.getTracks().forEach(track => track.stop());
+          videoStreamRef.current = null;
+        }
+        setHasCameraPermission(null);
+      };
+    }
+  }, [practiceMode, toast]);
+  
+  // This effect attaches the stream to the video element for preview
   useEffect(() => {
     const videoElement = videoPreviewRef.current;
-
-    const enableVideo = async () => {
-      if (!videoElement) return;
-      if (!showVideoPreview) return;
-
-      // Check if we already have a stream
-      if (videoStreamRef.current && videoStreamRef.current.active) {
-        if (videoElement.srcObject !== videoStreamRef.current) {
-          videoElement.srcObject = videoStreamRef.current;
-        }
-        videoElement.play().catch(e => console.warn("Video preview autoplay prevented.", e));
-        if (!hasCameraPermission) setHasCameraPermission(true);
-        return;
+    if (practiceMode === 'video' && videoElement && videoStreamRef.current) {
+      if (showVideoPreview) {
+        videoElement.srcObject = videoStreamRef.current;
+      } else {
+        videoElement.srcObject = null;
       }
-      
-      // If not, request permission
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        videoStreamRef.current = stream;
-        videoElement.srcObject = stream;
-        videoElement.play().catch(e => console.warn("Video preview autoplay prevented.", e));
-        setHasCameraPermission(true);
-      } catch (error) {
-        console.error('Error accessing camera/microphone:', error);
-        setHasCameraPermission(false);
-        toast({
-          variant: 'destructive',
-          title: 'Device Access Denied',
-          description: 'Video practice requires camera and mic access. Please enable it in browser settings.',
-        });
-      }
-    };
-
-    const disableVideo = () => {
-      if (videoElement) {
-        videoElement.pause();
-      }
-    };
-
-    if (practiceMode === 'video') {
-      enableVideo();
-    } else {
-      disableVideo();
     }
-  }, [practiceMode, showVideoPreview, hasCameraPermission, toast]);
+  }, [practiceMode, showVideoPreview, hasCameraPermission]);
 
-  // Separate effect for cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (videoStreamRef.current) {
-        videoStreamRef.current.getTracks().forEach(track => track.stop());
-        videoStreamRef.current = null;
-      }
-      if (recordedVideoUrl) URL.revokeObjectURL(recordedVideoUrl);
-      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
-      if (recognitionRef.current) recognitionRef.current.stop();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // Effect for Web Speech API setup
   useEffect(() => {
