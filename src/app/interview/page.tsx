@@ -20,9 +20,15 @@ import useLocalStorage from '@/hooks/use-local-storage';
 import { v4 as uuidv4 } from 'uuid'; 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Award, RotateCcw } from 'lucide-react';
+import { useAuth } from '@/contexts/auth-context';
+import { useRouter } from 'next/navigation';
+import { Skeleton } from '@/components/ui/skeleton';
 
 
 export default function InterviewPage() {
+  const { user, loading } = useAuth();
+  const router = useRouter();
+
   // Setup state
   const [currentSettings, setCurrentSettings] = useState<InterviewSettings | null>(null);
 
@@ -51,6 +57,13 @@ export default function InterviewPage() {
   useEffect(() => {
     setHasMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (!loading && !user) {
+      router.push('/login?from=/interview');
+    }
+  }, [user, loading, router]);
+
 
   const handleStartInterview = async (settings: InterviewSettings) => {
     setIsLoadingSetup(true);
@@ -270,6 +283,17 @@ export default function InterviewPage() {
   };
   
   const isLastQuestion = currentQuestionIndex === generatedQuestions.length - 1;
+
+  if (loading || !user) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <div className="w-full max-w-lg mx-auto space-y-6">
+          <Skeleton className="h-48 w-full" />
+          <Skeleton className="h-12 w-full" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto px-4 py-8 min-h-[calc(100vh-var(--header-height,80px))]">
