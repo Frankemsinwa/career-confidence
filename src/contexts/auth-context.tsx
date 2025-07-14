@@ -3,12 +3,13 @@
 
 import { createContext, useContext, useEffect, ReactNode, useState } from 'react';
 import { useAuthState } from 'react-firebase-hooks/auth';
-import { getAuth, signOut, User } from 'firebase/auth';
-import { app, auth, FIREBASE_CONFIG_ERROR } from '@/lib/firebase';
+import { signOut, User } from 'firebase/auth';
+import { auth, FIREBASE_CONFIG_ERROR } from '@/lib/firebase';
 import { useRouter } from 'next/navigation';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Terminal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface AuthContextType {
   user: User | null | undefined;
@@ -26,6 +27,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setFirebaseError(FIREBASE_CONFIG_ERROR);
   }, []);
+
+  const [user, loading, error] = useAuthState(firebaseError ? ({} as any) : auth);
+  const router = useRouter();
+
+  const logout = async () => {
+    await signOut(auth);
+    router.push('/login');
+  };
+
+  const value = { user, loading, error, logout, firebaseError };
 
   if (firebaseError) {
     return (
@@ -53,27 +64,14 @@ NEXT_PUBLIC_FIREBASE_APP_ID=your_app_id`}
         </div>
     );
   }
-
-  return <AuthComponent>{children}</AuthComponent>;
+  
+  return (
+    <AuthContext.Provider value={value}>
+        {children}
+    </AuthContext.Provider>
+  );
 }
 
-function AuthComponent({ children }: { children: ReactNode }) {
-    const [user, loading, error] = useAuthState(auth);
-    const router = useRouter();
-
-    const logout = async () => {
-        await signOut(auth);
-        router.push('/login');
-    };
-
-    const value = { user, loading, error, logout, firebaseError: null };
-
-    return (
-        <AuthContext.Provider value={value}>
-            {children}
-        </AuthContext.Provider>
-    );
-}
 
 export function useAuth() {
   const context = useContext(AuthContext);
