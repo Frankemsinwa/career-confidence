@@ -21,14 +21,8 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export function AuthProvider({ children }: { children: ReactNode }) {
-  const [firebaseError, setFirebaseError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setFirebaseError(FIREBASE_CONFIG_ERROR);
-  }, []);
-
-  const [user, loading, error] = useAuthState(firebaseError ? ({} as any) : auth);
+function AuthProviderContent({ children }: { children: ReactNode }) {
+  const [user, loading, error] = useAuthState(auth);
   const router = useRouter();
 
   const logout = async () => {
@@ -36,7 +30,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     router.push('/login');
   };
 
-  const value = { user, loading, error, logout, firebaseError };
+  const value = { user, loading, error, logout, firebaseError: null };
+
+  return (
+    <AuthContext.Provider value={value}>
+        {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [firebaseError, setFirebaseError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setFirebaseError(FIREBASE_CONFIG_ERROR);
+  }, []);
 
   if (firebaseError) {
     return (
@@ -66,9 +74,9 @@ NEXT_PUBLIC_FIREBASE_APP_ID=your_app_id`}
   }
   
   return (
-    <AuthContext.Provider value={value}>
+    <AuthProviderContent>
         {children}
-    </AuthContext.Provider>
+    </AuthProviderContent>
   );
 }
 
