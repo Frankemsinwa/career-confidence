@@ -11,15 +11,12 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-let app: FirebaseApp;
-let auth: Auth;
+let app: FirebaseApp | null = null;
+let auth: Auth | null = null;
 let FIREBASE_CONFIG_ERROR: string | null = null;
 
-if (!firebaseConfig.apiKey || firebaseConfig.apiKey.startsWith('your_')) {
+if (!firebaseConfig.apiKey || !firebaseConfig.projectId || firebaseConfig.apiKey.startsWith('your_')) {
   FIREBASE_CONFIG_ERROR = 'Firebase credentials are not configured. Please create a .env.local file with your project settings.';
-  // Use a dummy object to prevent app from crashing on import
-  app = {} as FirebaseApp;
-  auth = {} as Auth;
 } else {
   try {
     app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
@@ -27,8 +24,8 @@ if (!firebaseConfig.apiKey || firebaseConfig.apiKey.startsWith('your_')) {
   } catch (error) {
     console.error("Firebase initialization failed:", error);
     FIREBASE_CONFIG_ERROR = error instanceof Error ? error.message : "An unknown error occurred during Firebase initialization.";
-    app = {} as FirebaseApp;
-    auth = {} as Auth;
+    app = null;
+    auth = null;
   }
 }
 

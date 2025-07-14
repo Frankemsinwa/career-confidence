@@ -1,7 +1,7 @@
 
 'use client';
 
-import { createContext, useContext, useEffect, ReactNode, useState } from 'react';
+import { createContext, useContext, ReactNode } from 'react';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { signOut, User } from 'firebase/auth';
 import { auth, FIREBASE_CONFIG_ERROR } from '@/lib/firebase';
@@ -9,7 +9,6 @@ import { useRouter } from 'next/navigation';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Terminal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
 
 interface AuthContextType {
   user: User | null | undefined;
@@ -21,39 +20,40 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// This is a separate component that can safely use the auth hook
+// because it will only be rendered when we know `auth` is valid.
 function AuthProviderWithHook({ children }: { children: ReactNode }) {
-    const [user, loading, error] = useAuthState(auth);
-    const router = useRouter();
+  const [user, loading, error] = useAuthState(auth);
+  const router = useRouter();
 
-    const logout = async () => {
+  const logout = async () => {
+    if (auth) {
       await signOut(auth);
-      router.push('/login');
-    };
+    }
+    router.push('/login');
+  };
 
-    const value = { user, loading, error, logout, firebaseError: null };
+  const value = { user, loading, error, logout, firebaseError: null };
 
-    return (
-      <AuthContext.Provider value={value}>
-        {children}
-      </AuthContext.Provider>
-    );
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [firebaseError, setFirebaseError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setFirebaseError(FIREBASE_CONFIG_ERROR);
-  }, []);
-
-  if (firebaseError) {
+  // If there's a configuration error, show the error message and stop.
+  // This prevents the rest of the app from trying to use Firebase hooks with an invalid instance.
+  if (FIREBASE_CONFIG_ERROR) {
     return (
         <div className="flex items-center justify-center min-h-screen bg-background p-4">
             <Alert variant="destructive" className="max-w-2xl">
               <Terminal className="h-4 w-4" />
               <AlertTitle>Firebase Configuration Error</AlertTitle>
               <AlertDescription>
-                <p className="mb-4">{firebaseError}</p>
+                <p className="mb-4">{FIREBASE_CONFIG_ERROR}</p>
                 <p>Please create or update your <code className="font-mono bg-muted px-1 py-0.5 rounded-sm">.env.local</code> file in the root directory with your Firebase project credentials. You can copy the format from <code className="font-mono bg-muted px-1 py-0.5 rounded-sm">.env.local.example</code>.</p>
                 <pre className="mt-2 p-3 bg-muted rounded-md text-xs overflow-x-auto">
 {`NEXT_PUBLIC_FIREBASE_API_KEY=your_api_key
@@ -73,6 +73,7 @@ NEXT_PUBLIC_FIREBASE_APP_ID=your_app_id`}
     );
   }
   
+  // If there is no error, we can safely render the component that uses the hooks.
   return <AuthProviderWithHook>{children}</AuthProviderWithHook>;
 }
 
