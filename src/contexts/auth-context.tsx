@@ -21,24 +21,6 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-function AuthProviderContent({ children }: { children: ReactNode }) {
-  const [user, loading, error] = useAuthState(auth);
-  const router = useRouter();
-
-  const logout = async () => {
-    await signOut(auth);
-    router.push('/login');
-  };
-
-  const value = { user, loading, error, logout, firebaseError: null };
-
-  return (
-    <AuthContext.Provider value={value}>
-        {children}
-    </AuthContext.Provider>
-  );
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [firebaseError, setFirebaseError] = useState<string | null>(null);
 
@@ -46,6 +28,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setFirebaseError(FIREBASE_CONFIG_ERROR);
   }, []);
 
+  const router = useRouter();
+  
+  // This is the main change: We check for the error *before* calling the hook.
   if (firebaseError) {
     return (
         <div className="flex items-center justify-center min-h-screen bg-background p-4">
@@ -72,12 +57,26 @@ NEXT_PUBLIC_FIREBASE_APP_ID=your_app_id`}
         </div>
     );
   }
-  
-  return (
-    <AuthProviderContent>
+
+  // The hook is now inside a component that only renders if there's no error.
+  const AuthProviderWithHook = ({ children }: { children: ReactNode }) => {
+    const [user, loading, error] = useAuthState(auth);
+    
+    const logout = async () => {
+      await signOut(auth);
+      router.push('/login');
+    };
+
+    const value = { user, loading, error, logout, firebaseError: null };
+
+    return (
+      <AuthContext.Provider value={value}>
         {children}
-    </AuthProviderContent>
-  );
+      </AuthContext.Provider>
+    );
+  };
+  
+  return <AuthProviderWithHook>{children}</AuthProviderWithHook>;
 }
 
 
