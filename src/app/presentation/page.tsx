@@ -13,8 +13,14 @@ import type { AnalyzePresentationOutput } from '@/ai/flows/analyze-presentation-
 import { generatePresentationSuggestion } from '@/ai/flows/generate-presentation-suggestion';
 import PresentationProgressTracker from '@/components/app/presentation-progress-tracker';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useSupabase } from '@/contexts/supabase-auth-context';
+import { useRouter } from 'next/navigation';
+import { Loader2 } from 'lucide-react';
 
 export default function PresentationPage() {
+  const { user, isLoading: isAuthLoading } = useSupabase();
+  const router = useRouter();
+
   const [settings, setSettings] = useState<PresentationSettings | null>(null);
   const [isPracticeActive, setIsPracticeActive] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -28,7 +34,18 @@ export default function PresentationPage() {
   const [hasMounted, setHasMounted] = useState(false);
   useEffect(() => {
     setHasMounted(true);
-  }, []);
+    if (!isAuthLoading && !user) {
+      router.replace('/');
+    }
+  }, [user, isAuthLoading, router]);
+
+  if (isAuthLoading || !user) {
+    return (
+      <div className="flex min-h-screen w-full items-center justify-center">
+        <Loader2 className="h-10 w-10 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   const handleStartPractice = (newSettings: PresentationSettings) => {
     setSettings(newSettings);

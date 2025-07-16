@@ -19,11 +19,16 @@ import { useToast } from '@/hooks/use-toast';
 import useLocalStorage from '@/hooks/use-local-storage';
 import { v4 as uuidv4 } from 'uuid'; 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Award, RotateCcw } from 'lucide-react';
+import { Award, RotateCcw, Loader2 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useSupabase } from '@/contexts/supabase-auth-context';
+import { useRouter } from 'next/navigation';
 
 
 export default function InterviewPage() {
+  const { user, isLoading: isAuthLoading } = useSupabase();
+  const router = useRouter();
+
   // Setup state
   const [currentSettings, setCurrentSettings] = useState<InterviewSettings | null>(null);
 
@@ -51,7 +56,18 @@ export default function InterviewPage() {
   const [hasMounted, setHasMounted] = useState(false);
   useEffect(() => {
     setHasMounted(true);
-  }, []);
+    if (!isAuthLoading && !user) {
+      router.replace('/');
+    }
+  }, [user, isAuthLoading, router]);
+
+  if (isAuthLoading || !user) {
+    return (
+      <div className="flex min-h-screen w-full items-center justify-center">
+        <Loader2 className="h-10 w-10 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   const handleStartInterview = async (settings: InterviewSettings) => {
     setIsLoadingSetup(true);
