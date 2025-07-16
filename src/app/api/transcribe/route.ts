@@ -1,3 +1,4 @@
+
 // src/app/api/transcribe/route.ts
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
@@ -10,16 +11,18 @@ const openai = new OpenAI({
 });
 
 export async function POST(request: NextRequest) {
+  // Explicitly check for the API key, especially in production
+  if (!process.env.OPENAI_API_KEY) {
+      console.error('OpenAI API key is not configured on the server.');
+      return NextResponse.json({ error: 'The transcription service is not configured correctly. The API key is missing.' }, { status: 500 });
+  }
+    
   try {
     const formData = await request.formData();
     const audioFile = formData.get('audio');
 
     if (!audioFile || !(audioFile instanceof Blob)) {
       return NextResponse.json({ error: 'No audio file uploaded or invalid format.' }, { status: 400 });
-    }
-
-    if (!process.env.OPENAI_API_KEY) {
-      return NextResponse.json({ error: 'OpenAI API key is not configured on the server.' }, { status: 500 });
     }
     
     // The OpenAI SDK's `create` method can directly handle the File/Blob object from FormData.
@@ -43,7 +46,7 @@ export async function POST(request: NextRequest) {
         errorMessage = `OpenAI API Error: ${error.message}`;
         statusCode = error.status || 500;
         if (statusCode === 401) {
-            errorMessage = "Invalid OpenAI API key. Please check your .env file."
+            errorMessage = "Invalid OpenAI API key. Please check your hosting environment variables."
         }
     } else if (error instanceof Error) {
         errorMessage = error.message;
