@@ -56,35 +56,23 @@ const COMMON_FILLER_WORDS = [
   'literally', 'you know', 'i mean', 'so', 'well', 'right', 'okay', 'see'
 ].join(', ');
 
-
-const analyzePresentationFlow = ai.defineFlow(
-  {
-    name: 'analyzePresentationFlow',
-    inputSchema: AnalyzePresentationInputSchema,
-    outputSchema: AnalyzePresentationOutputSchema,
-    model: 'googleai/gemini-1.5-flash',
-  },
-  async (input) => {
-    const wordCount = input.transcript.split(/\s+/).filter(Boolean).length;
-    let speakingPaceWPM = 0;
-    if (input.actualDurationSeconds > 0) {
-      speakingPaceWPM = Math.round((wordCount / input.actualDurationSeconds) * 60);
-    }
-    const targetMinutes = timeFrameToMinutes(input.timeFrame);
-
-    const prompt = `You are an expert public speaking coach. Your task is to analyze a presentation transcript and provide constructive feedback as a JSON object.
+const prompt = ai.definePrompt({
+    name: 'analyzePresentationPrompt',
+    input: { schema: AnalyzePresentationInputSchema.extend({ wordCount: z.number(), speakingPaceWPM: z.number(), targetMinutes: z.number() }) },
+    output: { schema: AnalyzePresentationOutputSchema },
+    prompt: `You are an expert public speaking coach. Your task is to analyze a presentation transcript and provide constructive feedback as a JSON object.
 
     Here is the context:
-    - Presentation Topic: "${input.topic}"
-    - Target Audience: "${input.audience}"
-    - Target Time Frame: ${input.timeFrame} (${targetMinutes} minutes)
-    - Actual Recorded Duration: ${input.actualDurationSeconds} seconds
-    - Word Count: ${wordCount} words
-    - Speaking Pace: ${speakingPaceWPM} WPM
+    - Presentation Topic: "{{topic}}"
+    - Target Audience: "{{audience}}"
+    - Target Time Frame: {{timeFrame}} ({{targetMinutes}} minutes)
+    - Actual Recorded Duration: {{actualDurationSeconds}} seconds
+    - Word Count: {{wordCount}} words
+    - Speaking Pace: {{speakingPaceWPM}} WPM
 
     Here is the presentation transcript:
     ---
-    ${input.transcript}
+    {{{transcript}}}
     ---
 
     Please provide your analysis as a JSON object with the following fields:
@@ -93,8 +81,8 @@ const analyzePresentationFlow = ai.defineFlow(
         - "structureFeedback": Evaluate the presentation's structure. Does it have a clear introduction, body, and conclusion? Is the flow logical?
         - "clarityFeedback": How clear and easy to understand was the content? Was jargon used appropriately for the target audience?
         - "engagementFeedback": Based on the language, how engaging was the presentation? Does it use storytelling, rhetorical questions, or other techniques to hold the audience's attention?
-        - "paceFeedback": Comment on the speaking pace (${speakingPaceWPM} WPM). A good presentation pace is typically 140-170 WPM. Is the pace appropriate?
-        - "timeManagementFeedback": Analyze the time management. The target was ${targetMinutes} minutes, and the actual duration was ${input.actualDurationSeconds} seconds. Was the presenter on time, too short, or too long? Provide specific feedback.
+        - "paceFeedback": Comment on the speaking pace ({{speakingPaceWPM}} WPM). A good presentation pace is typically 140-170 WPM. Is the pace appropriate?
+        - "timeManagementFeedback": Analyze the time management. The target was {{targetMinutes}} minutes, and the actual duration was {{actualDurationSeconds}} seconds. Was the presenter on time, too short, or too long? Provide specific feedback.
 
     2.  **Scores (0-100)**:
         - "structureScore": Rate the structure and logical flow.
@@ -104,15 +92,31 @@ const analyzePresentationFlow = ai.defineFlow(
         - "fillerWordsScore": Rate the use of filler words. A higher score means fewer filler words were used. A few filler words are acceptable, but many should result in a lower score.
 
     3.  **Data Points**:
-        - "speakingPaceWPM": The calculated speaking pace, which is ${speakingPaceWPM}.
+        - "speakingPaceWPM": The calculated speaking pace, which is {{speakingPaceWPM}}.
         - "fillerWordsFound": Identify and list common English filler words from the transcript. Common filler words include: ${COMMON_FILLER_WORDS}. If none, return an empty array.
-    `;
+    `,
+});
 
-    const {output} = await ai.generate({
-        prompt: prompt,
-        output: {
-            schema: AnalyzePresentationOutputSchema
-        }
+
+const analyzePresentationFlow = ai.defineFlow(
+  {
+    name: 'analyzePresentationFlow',
+    inputSchema: AnalyzePresentationInputSchema,
+    outputSchema: AnalyzePresentationOutputSchema,
+  },
+  async (input) => {
+    const wordCount = input.transcript.split(/\s+/).filter(Boolean).length;
+    let speakingPaceWPM = 0;
+    if (input.actualDurationSeconds > 0) {
+      speakingPaceWPM = Math.round((wordCount / input.actualDurationSeconds) * 60);
+    }
+    const targetMinutes = timeFrameToMinutes(input.timeFrame);
+
+    const {output} = await prompt({
+        ...input,
+        wordCount,
+        speakingPaceWPM,
+        targetMinutes
     });
 
     return output!;

@@ -29,22 +29,18 @@ export async function generatePresentationSuggestion(
   return generatePresentationSuggestionFlow(input);
 }
 
-const generatePresentationSuggestionFlow = ai.defineFlow(
-  {
-    name: 'generatePresentationSuggestionFlow',
-    inputSchema: GeneratePresentationSuggestionInputSchema,
-    outputSchema: GeneratePresentationSuggestionOutputSchema,
-    model: 'googleai/gemini-1.5-flash',
-  },
-  async (input) => {
-    const prompt = `You are an expert public speaking coach. Your task is to create a model presentation outline based on the user's requirements.
+const prompt = ai.definePrompt({
+    name: 'generatePresentationSuggestionPrompt',
+    input: { schema: GeneratePresentationSuggestionInputSchema },
+    output: { schema: GeneratePresentationSuggestionOutputSchema },
+    prompt: `You are an expert public speaking coach. Your task is to create a model presentation outline based on the user's requirements.
 
     The outline should be structured, clear, and tailored to the provided context. It should include a compelling introduction, a few well-defined key points for the body, and a strong conclusion.
 
     Here is the context:
-    - Presentation Topic: "${input.topic}"
-    - Target Audience: "${input.audience}"
-    - Target Time Frame: ${input.timeFrame}
+    - Presentation Topic: "{{topic}}"
+    - Target Audience: "{{audience}}"
+    - Target Time Frame: {{timeFrame}}
 
     Please generate a model presentation outline as a JSON object with a single "suggestion" field. The suggestion should be a markdown-formatted string. For example:
 
@@ -66,15 +62,17 @@ const generatePresentationSuggestionFlow = ai.defineFlow(
     - **Summarize Key Points:** Briefly recap the main takeaways.
     - **Call to Action:** What do you want the audience to do or think about next?
     - **Q&A:** Open the floor for questions.
-    `;
+    `
+});
 
-    const {output} = await ai.generate({
-        prompt: prompt,
-        output: {
-            schema: GeneratePresentationSuggestionOutputSchema
-        }
-    });
-
+const generatePresentationSuggestionFlow = ai.defineFlow(
+  {
+    name: 'generatePresentationSuggestionFlow',
+    inputSchema: GeneratePresentationSuggestionInputSchema,
+    outputSchema: GeneratePresentationSuggestionOutputSchema,
+  },
+  async (input) => {
+    const {output} = await prompt(input);
     return output!;
   }
 );
