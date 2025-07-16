@@ -112,12 +112,11 @@ export default function InterviewArea({
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const [isAudioSupported, setIsAudioSupported] = useState(true);
   const [isListening, setIsListening] = useState(false);
-  const [liveTranscript, setLiveTranscript] = useState('');
   const [finalTranscript, setFinalTranscript] = useState('');
   const audioRecordingStartTimeRef = useRef<number | null>(null);
   const [audioRecordingDuration, setAudioRecordingDuration] = useState(0);
-  const liveTranscriptRef = useRef('');
   const isForcedStopRef = useRef(false);
+  const finalTranscriptRef = useRef('');
 
   // This effect creates and destroys the stream based on practice mode
   useEffect(() => {
@@ -184,17 +183,14 @@ export default function InterviewArea({
     recognitionRef.current = recognition;
 
     recognition.onresult = (event) => {
-        let final = finalTranscript;
-        let interim = '';
+        let interimTranscript = '';
         for (let i = event.resultIndex; i < event.results.length; ++i) {
             if (event.results[i].isFinal) {
-                final += event.results[i][0].transcript;
+                finalTranscriptRef.current += event.results[i][0].transcript + ' ';
             } else {
-                interim += event.results[i][0].transcript;
+                interimTranscript += event.results[i][0].transcript;
             }
         }
-        liveTranscriptRef.current = final + interim;
-        setLiveTranscript(final + interim);
     };
 
     recognition.onstart = () => {
@@ -206,19 +202,18 @@ export default function InterviewArea({
     };
 
     recognition.onend = () => {
-        // Only truly stop if the user forced it
+        setIsListening(false);
         if (isForcedStopRef.current) {
-            setIsListening(false);
-            setFinalTranscript(liveTranscriptRef.current); // Save final transcript
             if (audioRecordingStartTimeRef.current) {
                 const duration = Math.round((Date.now() - audioRecordingStartTimeRef.current) / 1000);
                 setAudioRecordingDuration(duration);
             }
+            setFinalTranscript(finalTranscriptRef.current);
             audioRecordingStartTimeRef.current = null;
             isForcedStopRef.current = false; // Reset for next time
         } else if (isListening) {
-            // If it stopped naturally (e.g., silence), restart it
-            try {
+            // If it stopped naturally (e.g., silence), restart it to continue the session
+             try {
                 recognitionRef.current?.start();
             } catch (error) {
                 console.error("Error restarting recognition:", error);
@@ -247,16 +242,18 @@ export default function InterviewArea({
             duration: 7000,
         });
         setIsListening(false);
+        isForcedStopRef.current = true;
     };
 
     return () => {
       if (recognitionRef.current) {
         recognitionRef.current.onend = null; // Prevent onend from firing during cleanup
+        isForcedStopRef.current = true;
         recognitionRef.current.stop();
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [finalTranscript, isListening]);
+  }, []);
 
   // Effect to reset state when the question changes
   useEffect(() => {
@@ -275,16 +272,15 @@ export default function InterviewArea({
     mediaChunksRef.current = [];
     
     // Audio resets
-    isForcedStopRef.current = true;
-    if (recognitionRef.current) {
+    if (isListening && recognitionRef.current) {
+        isForcedStopRef.current = true;
         recognitionRef.current.stop();
     }
-    setIsListening(false);
-    setLiveTranscript('');
     setFinalTranscript('');
-    liveTranscriptRef.current = '';
+    finalTranscriptRef.current = '';
     setAudioRecordingDuration(0);
     audioRecordingStartTimeRef.current = null;
+
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [question]);
@@ -406,12 +402,11 @@ export default function InterviewArea({
       isForcedStopRef.current = true;
       recognitionRef.current.stop();
     } else {
-      isForcedStopRef.current = false;
-      setLiveTranscript('');
       setFinalTranscript('');
-      liveTranscriptRef.current = '';
+      finalTranscriptRef.current = '';
       setAudioRecordingDuration(0);
       audioRecordingStartTimeRef.current = null;
+      isForcedStopRef.current = false;
       recognitionRef.current.start();
     }
   };
@@ -521,7 +516,9 @@ export default function InterviewArea({
 
             <TabsContent value="audio">
                 <div className="flex flex-col items-center justify-center space-y-4">
-                  <div className={`w-full min-h-[50px] p-3 rounded-md border bg-muted text-muted-foreground ${liveTranscript.trim() ? 'text-foreground' : ''}`}>{liveTranscript.trim() ? liveTranscript : "Your live transcript will appear here..."}</div>
+                  <div className={`w-full min-h-[50px] p-3 rounded-md border bg-muted text-muted-foreground ${finalTranscript.trim() ? 'text-foreground' : ''}`}>
+                    {finalTranscript.trim() ? finalTranscript : isListening ? "Listening... click stop when you're done." : "Your transcript will appear here after you record."}
+                  </div>
                   <Button onClick={handleAudioRecordClick} variant={isListening ? 'destructive' : 'outline'} size="lg" disabled={isLoadingEvaluation || isLoadingNewQuestion} className="rounded-full py-3 px-6 gap-2">
                     {isListening ? <MicOff size={24}/> : <Mic size={24} />}
                     <span className="ml-0 text-base">{isListening ? "Stop Listening" : "Start Listening"}</span>
@@ -624,3 +621,5 @@ export default function InterviewArea({
     </TooltipProvider>
   );
 }
+
+    

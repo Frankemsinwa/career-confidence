@@ -114,10 +114,9 @@ export default function PresentationArea({
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const [isAudioSupported, setIsAudioSupported] = useState(true);
   const [isListening, setIsListening] = useState(false);
-  const [liveTranscript, setLiveTranscript] = useState('');
   const [finalTranscript, setFinalTranscript] = useState('');
-  const liveTranscriptRef = useRef('');
   const isForcedStopRef = useRef(false);
+  const finalTranscriptRef = useRef('');
 
   // Timer State
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -176,8 +175,8 @@ export default function PresentationArea({
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      setIsAudioSupported(false);
-      return;
+        setIsAudioSupported(false);
+        return;
     }
 
     const recognition = new SpeechRecognition();
@@ -187,35 +186,28 @@ export default function PresentationArea({
     recognitionRef.current = recognition;
 
     recognition.onresult = (event) => {
-        let final = finalTranscript; // Append to existing final transcript
-        let interim = '';
         for (let i = event.resultIndex; i < event.results.length; ++i) {
             if (event.results[i].isFinal) {
-                final += event.results[i][0].transcript;
-            } else {
-                interim += event.results[i][0].transcript;
+                finalTranscriptRef.current += event.results[i][0].transcript + ' ';
             }
         }
-        const currentLive = final + interim;
-        liveTranscriptRef.current = currentLive;
-        setLiveTranscript(currentLive);
     };
 
     recognition.onstart = () => {
         setIsListening(true);
-        if(!recordingStartTimeRef.current) {
+        if (!recordingStartTimeRef.current) {
             startTimer();
             toast({ title: 'Listening...', description: 'Start your presentation.' });
         }
     };
 
     recognition.onend = async () => {
+        setIsListening(false);
         if (isForcedStopRef.current) {
-            setIsListening(false);
             const duration = stopTimer();
-            const final = liveTranscriptRef.current;
+            const final = finalTranscriptRef.current;
             setFinalTranscript(final);
-            
+
             if (final.trim()) {
                 await onSubmit(final, duration, null);
             } else {
@@ -223,7 +215,7 @@ export default function PresentationArea({
             }
             isForcedStopRef.current = false;
         } else if (isListening) {
-            try {
+             try {
                 recognitionRef.current?.start();
             } catch (error) {
                 console.error("Error restarting recognition:", error);
@@ -240,21 +232,21 @@ export default function PresentationArea({
     };
 
     return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.onend = null;
-        recognitionRef.current.stop();
-      }
+        if (recognitionRef.current) {
+            isForcedStopRef.current = true;
+            recognitionRef.current.onend = null;
+            recognitionRef.current.stop();
+        }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [finalTranscript, isListening]);
+  }, []);
   
   useEffect(() => {
     // Reset state when analysis result is cleared (new session starts)
     if (!analysisResult) {
         setTranscript('');
         setFinalTranscript('');
-        setLiveTranscript('');
-        liveTranscriptRef.current = '';
+        finalTranscriptRef.current = '';
         setRecordedVideoUrl(prevUrl => {
             if (prevUrl) URL.revokeObjectURL(prevUrl);
             return null;
@@ -390,11 +382,10 @@ export default function PresentationArea({
       isForcedStopRef.current = true;
       recognitionRef.current.stop(); // This will trigger the onend handler for submission
     } else {
-      isForcedStopRef.current = false;
       setFinalTranscript('');
-      setLiveTranscript('');
-      liveTranscriptRef.current = '';
+      finalTranscriptRef.current = '';
       setElapsedSeconds(0);
+      isForcedStopRef.current = false;
       recognitionRef.current.start();
     }
   };
@@ -489,7 +480,9 @@ export default function PresentationArea({
             <TabsContent value="audio">
               {!isAudioSupported && <Alert variant="destructive"><AlertTitle>Audio Not Supported</AlertTitle><AlertDescription>Your browser doesn't support live transcription. Try Chrome/Edge or use Video Mode.</AlertDescription></Alert>}
               <div className="flex flex-col items-center justify-center space-y-4">
-                  <div className={`w-full min-h-[50px] p-3 rounded-md border bg-muted text-muted-foreground ${liveTranscript.trim() ? 'text-foreground' : ''}`}>{liveTranscript.trim() ? liveTranscript : "Your live transcript will appear here..."}</div>
+                  <div className={`w-full min-h-[50px] p-3 rounded-md border bg-muted text-muted-foreground ${finalTranscript.trim() ? 'text-foreground' : ''}`}>
+                    {finalTranscript.trim() ? finalTranscript : isListening ? "Listening... click stop when you're done." : "Your transcript will appear here after you record."}
+                  </div>
                   <Button onClick={handleAudioRecordClick} variant={isListening ? 'destructive' : 'default'} size="lg" disabled={audioRecordButtonDisabled} className="rounded-full w-48 h-16 text-lg gap-2">
                     {isListening ? <MicOff size={24}/> : <Mic size={24} />}
                     {isListening ? "Stop" : "Speak"}
@@ -607,3 +600,5 @@ export default function PresentationArea({
     </div>
   );
 }
+
+    
