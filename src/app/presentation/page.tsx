@@ -12,14 +12,9 @@ import { analyzePresentation } from '@/ai/flows/analyze-presentation-flow';
 import type { AnalyzePresentationOutput } from '@/ai/flows/analyze-presentation-flow';
 import { generatePresentationSuggestion } from '@/ai/flows/generate-presentation-suggestion';
 import PresentationProgressTracker from '@/components/app/presentation-progress-tracker';
-import { useAuth } from '@/contexts/auth-context';
-import { useRouter } from 'next/navigation';
 import { Skeleton } from '@/components/ui/skeleton';
 
 export default function PresentationPage() {
-  const { user, loading } = useAuth();
-  const router = useRouter();
-
   const [settings, setSettings] = useState<PresentationSettings | null>(null);
   const [isPracticeActive, setIsPracticeActive] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -34,13 +29,6 @@ export default function PresentationPage() {
   useEffect(() => {
     setHasMounted(true);
   }, []);
-
-  useEffect(() => {
-    if (!loading && !user) {
-      router.push('/login?from=/presentation');
-    }
-  }, [user, loading, router]);
-
 
   const handleStartPractice = (newSettings: PresentationSettings) => {
     setSettings(newSettings);
@@ -127,17 +115,6 @@ export default function PresentationPage() {
       description: 'Your settings are the same. Start recording when you are ready.',
     });
   };
-
-  if (loading || !user) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="w-full max-w-lg mx-auto space-y-6">
-          <Skeleton className="h-64 w-full" />
-          <Skeleton className="h-12 w-full" />
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="container mx-auto px-4 py-8 min-h-[calc(100vh-var(--header-height,80px))]">
