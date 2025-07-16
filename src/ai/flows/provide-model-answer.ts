@@ -26,9 +26,9 @@ export async function provideModelAnswer(input: ProvideModelAnswerInput): Promis
   return provideModelAnswerFlow(input);
 }
 
-const prompt = ai.definePrompt({
+const provideModelAnswerPrompt = ai.definePrompt({
   name: 'provideModelAnswerPrompt',
-  model: 'googleai/gemini-1.5-flash', // Explicitly set model
+  model: 'googleai/gemini-1.5-flash',
   input: {schema: ProvideModelAnswerInputSchema},
   output: {schema: ProvideModelAnswerOutputSchema},
   prompt: `You are an expert career coach providing model answers to interview questions.
@@ -49,7 +49,7 @@ const provideModelAnswerFlow = ai.defineFlow(
     outputSchema: ProvideModelAnswerOutputSchema,
   },
   async input => {
-    const {output} = await prompt(input);
+    const {output} = await provideModelAnswerPrompt(input);
     return output!;
   }
 );

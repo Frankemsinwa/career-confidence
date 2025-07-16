@@ -29,8 +29,9 @@ export async function generatePresentationSuggestion(
   return generatePresentationSuggestionFlow(input);
 }
 
-const prompt = ai.definePrompt({
+const generatePresentationSuggestionPrompt = ai.definePrompt({
     name: 'generatePresentationSuggestionPrompt',
+    model: 'googleai/gemini-1.5-flash',
     input: { schema: GeneratePresentationSuggestionInputSchema },
     output: { schema: GeneratePresentationSuggestionOutputSchema },
     prompt: `You are an expert public speaking coach. Your task is to create a model presentation outline based on the user's requirements.
@@ -72,7 +73,7 @@ const generatePresentationSuggestionFlow = ai.defineFlow(
     outputSchema: GeneratePresentationSuggestionOutputSchema,
   },
   async (input) => {
-    const {output} = await prompt(input);
+    const {output} = await generatePresentationSuggestionPrompt(input);
     return output!;
   }
 );

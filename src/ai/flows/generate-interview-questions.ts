@@ -1,4 +1,3 @@
-// src/ai/flows/generate-interview-questions.ts
 'use server';
 
 /**
@@ -37,7 +36,7 @@ export async function generateInterviewQuestions(
 
 const generateInterviewQuestionsPrompt = ai.definePrompt({
   name: 'generateInterviewQuestionsPrompt',
-  model: 'googleai/gemini-1.5-flash', // Explicitly set model
+  model: 'googleai/gemini-1.5-flash',
   input: {schema: GenerateInterviewQuestionsInputSchema},
   output: {schema: GenerateInterviewQuestionsOutputSchema},
   prompt: `You are an intelligent and professional interview assistant AI.

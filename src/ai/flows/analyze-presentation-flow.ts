@@ -56,8 +56,9 @@ const COMMON_FILLER_WORDS = [
   'literally', 'you know', 'i mean', 'so', 'well', 'right', 'okay', 'see'
 ].join(', ');
 
-const prompt = ai.definePrompt({
+const analyzePresentationPrompt = ai.definePrompt({
     name: 'analyzePresentationPrompt',
+    model: 'googleai/gemini-1.5-flash',
     input: { schema: AnalyzePresentationInputSchema.extend({ wordCount: z.number(), speakingPaceWPM: z.number(), targetMinutes: z.number() }) },
     output: { schema: AnalyzePresentationOutputSchema },
     prompt: `You are an expert public speaking coach. Your task is to analyze a presentation transcript and provide constructive feedback as a JSON object.
@@ -112,7 +113,7 @@ const analyzePresentationFlow = ai.defineFlow(
     }
     const targetMinutes = timeFrameToMinutes(input.timeFrame);
 
-    const {output} = await prompt({
+    const {output} = await analyzePresentationPrompt({
         ...input,
         wordCount,
         speakingPaceWPM,
