@@ -4,6 +4,7 @@ import { GeistMono } from 'geist/font/mono';
 import './globals.css';
 import { Toaster } from '@/components/ui/toaster';
 import Header from '@/components/layout/header';
+import { SupabaseAuthProvider } from '@/contexts/supabase-auth-context';
 
 const geistSans = GeistSans; // Use the direct import
 const geistMono = GeistMono;
@@ -21,9 +22,11 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-        <Header />
-        <main>{children}</main>
-        <Toaster />
+        <SupabaseAuthProvider>
+          <Header />
+          <main>{children}</main>
+          <Toaster />
+        </SupabaseAuthProvider>
       </body>
     </html>
   );
