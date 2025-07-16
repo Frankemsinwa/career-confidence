@@ -117,6 +117,7 @@ export default function PresentationArea({
   const [liveTranscript, setLiveTranscript] = useState('');
   const [finalTranscript, setFinalTranscript] = useState('');
   const liveTranscriptRef = useRef('');
+  const isForcedStopRef = useRef(false);
 
   // Timer State
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -202,20 +203,32 @@ export default function PresentationArea({
 
     recognition.onstart = () => {
         setIsListening(true);
-        startTimer();
-        toast({ title: 'Listening...', description: 'Start your presentation.' });
+        if(!recordingStartTimeRef.current) {
+            startTimer();
+            toast({ title: 'Listening...', description: 'Start your presentation.' });
+        }
     };
 
     recognition.onend = async () => {
-        setIsListening(false);
-        const duration = stopTimer();
-        const final = liveTranscriptRef.current;
-        setFinalTranscript(final);
-        
-        if (final.trim()) {
-            await onSubmit(final, duration, null);
-        } else {
-            toast({ title: "No speech detected", variant: "destructive" });
+        if (isForcedStopRef.current) {
+            setIsListening(false);
+            const duration = stopTimer();
+            const final = liveTranscriptRef.current;
+            setFinalTranscript(final);
+            
+            if (final.trim()) {
+                await onSubmit(final, duration, null);
+            } else {
+                toast({ title: "No speech detected", variant: "destructive" });
+            }
+            isForcedStopRef.current = false;
+        } else if (isListening) {
+            try {
+                recognitionRef.current?.start();
+            } catch (error) {
+                console.error("Error restarting recognition:", error);
+                setIsListening(false);
+            }
         }
     };
 
@@ -227,12 +240,13 @@ export default function PresentationArea({
     };
 
     return () => {
-        if(recognitionRef.current) {
-          recognitionRef.current.stop();
-        }
+      if (recognitionRef.current) {
+        recognitionRef.current.onend = null;
+        recognitionRef.current.stop();
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [finalTranscript]);
+  }, [finalTranscript, isListening]);
   
   useEffect(() => {
     // Reset state when analysis result is cleared (new session starts)
@@ -240,6 +254,7 @@ export default function PresentationArea({
         setTranscript('');
         setFinalTranscript('');
         setLiveTranscript('');
+        liveTranscriptRef.current = '';
         setRecordedVideoUrl(prevUrl => {
             if (prevUrl) URL.revokeObjectURL(prevUrl);
             return null;
@@ -366,15 +381,16 @@ export default function PresentationArea({
   };
 
   const handleAudioRecordClick = () => {
-    if (!isAudioSupported) {
-        toast({ variant: 'destructive', title: 'Audio Mode Not Supported' });
-        return;
+    if (!isAudioSupported || !recognitionRef.current || isLoading) {
+      if(!isAudioSupported) toast({ variant: 'destructive', title: 'Audio Mode Not Supported' });
+      return;
     }
-    if (!recognitionRef.current || isLoading) return;
     
     if (isListening) {
-      recognitionRef.current.stop(); // This triggers onend, which stops the timer and submits
+      isForcedStopRef.current = true;
+      recognitionRef.current.stop(); // This will trigger the onend handler for submission
     } else {
+      isForcedStopRef.current = false;
       setFinalTranscript('');
       setLiveTranscript('');
       liveTranscriptRef.current = '';
@@ -383,7 +399,7 @@ export default function PresentationArea({
     }
   };
 
-  const displayedTranscript = (practiceMode === 'video' ? transcript : finalTranscript) || (analysisResult ? 'Could not retrieve transcript from this session.' : '');
+  const displayedTranscript = (practiceMode === 'video' ? transcript : finalTranscript) || (analysisResult?.transcript ?? 'Could not retrieve transcript from this session.');
 
   const handleDownloadVideo = () => {
     if (!recordedVideoUrl) return;

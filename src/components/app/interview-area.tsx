@@ -117,6 +117,7 @@ export default function InterviewArea({
   const audioRecordingStartTimeRef = useRef<number | null>(null);
   const [audioRecordingDuration, setAudioRecordingDuration] = useState(0);
   const liveTranscriptRef = useRef('');
+  const isForcedStopRef = useRef(false);
 
   // This effect creates and destroys the stream based on practice mode
   useEffect(() => {
@@ -198,19 +199,32 @@ export default function InterviewArea({
 
     recognition.onstart = () => {
         setIsListening(true);
-        audioRecordingStartTimeRef.current = Date.now();
-        toast({ title: 'Listening...', description: 'Start speaking now.' });
+        if (!audioRecordingStartTimeRef.current) {
+            audioRecordingStartTimeRef.current = Date.now();
+            toast({ title: 'Listening...', description: 'Start speaking now.' });
+        }
     };
 
     recognition.onend = () => {
-        setIsListening(false);
-        // Ensure finalTranscript is updated with the last live version
-        setFinalTranscript(liveTranscriptRef.current);
-        if (audioRecordingStartTimeRef.current) {
-            const duration = Math.round((Date.now() - audioRecordingStartTimeRef.current) / 1000);
-            setAudioRecordingDuration(duration);
+        // Only truly stop if the user forced it
+        if (isForcedStopRef.current) {
+            setIsListening(false);
+            setFinalTranscript(liveTranscriptRef.current); // Save final transcript
+            if (audioRecordingStartTimeRef.current) {
+                const duration = Math.round((Date.now() - audioRecordingStartTimeRef.current) / 1000);
+                setAudioRecordingDuration(duration);
+            }
+            audioRecordingStartTimeRef.current = null;
+            isForcedStopRef.current = false; // Reset for next time
+        } else if (isListening) {
+            // If it stopped naturally (e.g., silence), restart it
+            try {
+                recognitionRef.current?.start();
+            } catch (error) {
+                console.error("Error restarting recognition:", error);
+                setIsListening(false);
+            }
         }
-        audioRecordingStartTimeRef.current = null;
     };
 
     recognition.onerror = (event) => {
@@ -234,8 +248,15 @@ export default function InterviewArea({
         });
         setIsListening(false);
     };
+
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.onend = null; // Prevent onend from firing during cleanup
+        recognitionRef.current.stop();
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [finalTranscript]);
+  }, [finalTranscript, isListening]);
 
   // Effect to reset state when the question changes
   useEffect(() => {
@@ -254,7 +275,10 @@ export default function InterviewArea({
     mediaChunksRef.current = [];
     
     // Audio resets
-    if (isListening) recognitionRef.current?.stop();
+    isForcedStopRef.current = true;
+    if (recognitionRef.current) {
+        recognitionRef.current.stop();
+    }
     setIsListening(false);
     setLiveTranscript('');
     setFinalTranscript('');
@@ -379,8 +403,10 @@ export default function InterviewArea({
     if (!recognitionRef.current) return;
     
     if (isListening) {
+      isForcedStopRef.current = true;
       recognitionRef.current.stop();
     } else {
+      isForcedStopRef.current = false;
       setLiveTranscript('');
       setFinalTranscript('');
       liveTranscriptRef.current = '';
