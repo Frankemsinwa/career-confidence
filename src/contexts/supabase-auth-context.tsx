@@ -1,11 +1,11 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { createSupabaseClient } from '@/lib/supabase/client';
+import { createClient } from '@/lib/supabase/client';
 import type { SupabaseClient, User } from '@supabase/supabase-js';
 
 type SupabaseContextType = {
-  supabase: SupabaseClient | null;
+  supabase: SupabaseClient;
   user: User | null;
   isLoading: boolean;
 };
@@ -13,7 +13,7 @@ type SupabaseContextType = {
 const SupabaseContext = createContext<SupabaseContextType | undefined>(undefined);
 
 export function SupabaseAuthProvider({ children }: { children: ReactNode }) {
-  const [supabase] = useState(() => createSupabaseClient());
+  const [supabase] = useState(() => createClient());
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
